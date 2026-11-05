@@ -1,0 +1,6 @@
+# 便签墙 bundle patch：插入一条行，注册双面插件（host + client）。
+# 行 id 必须与 cordis 的条目 id 一致；name 必须能解析到这个包（profile 里是 file: 依赖）。
+- insert:
+    - id: sticky-wall
+      name: dsh-plugin-sticky-wall
+      config: {}
