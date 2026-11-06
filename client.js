@@ -527,7 +527,14 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
         // 回收站变了（比如模型刚删了一张）：补拉一次明细
         load(true, true)
       }
-      if (data.store !== null && typeof data.store === 'object') setState({ store: data.store })
+      if (data.store !== null && typeof data.store === 'object') {
+        setState({ store: data.store })
+        // 数据文件坏了、宿主已把原文件备份：必须告诉用户，不然他会以为便签凭空消失
+        if (typeof data.store.backup === 'string' && data.store.backup !== '' && !warnedBackup) {
+          warnedBackup = true
+          notify('数据文件损坏，原文件已备份为 ' + shortPath(data.store.backup) + '（可以手动抢救）', 'error')
+        }
+      }
       setState({ status: 'ready', error: '' })
     } catch (error) {
       setState({ status: 'error', error: String(error?.message || error) })
@@ -654,6 +661,8 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
 
   /** 当前墙的滚动容器：删除后把焦点收回这里，键盘用户不会「掉到页面顶部」。 */
   let wallEl = null
+  /** 坏文件备份的提示只弹一次（轮询会反复带这个字段）。 */
+  let warnedBackup = false
 
   /** 删除 = 进回收站（软删除）。乐观更新 + toast 里给一个「撤销」。 */
   async function removeNote(id) {
@@ -1742,14 +1751,33 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     const wallRef = React.useRef(null)
     const searchRef = React.useRef(null)
     const [scrollState, setScrollState] = React.useState({ scrollable: false, atTop: true, atBottom: false })
+    /** 最后一张纸的底边（相对画布）。画布本身有 640px 的 min-height，不能拿 scrollHeight 判断「有没有东西可滚」。 */
+    const contentBottom = React.useRef(0)
 
-    /** 量一下墙能不能滚、滚到哪了 —— 只有能滚的时候才显示「最上/最下」按钮。 */
-    function syncScroll() {
+    function measureContent() {
+      const el = wallRef.current
+      const canvas = el === null ? null : el.querySelector('.sw-canvas')
+      if (canvas === null || canvas === undefined) return 0
+      let bottom = 0
+      for (const child of canvas.children) {
+        if (child.classList === undefined || !child.classList.contains('sw-note')) continue
+        bottom = Math.max(bottom, child.offsetTop + child.offsetHeight)
+      }
+      return bottom
+    }
+
+    /**
+     * 量一下墙能不能滚、滚到哪了。
+     * @param {boolean} full 是否重新量内容高度（滚动事件里不需要，避免每次滚动都读一堆 offset）
+     */
+    function syncScroll(full) {
       const el = wallRef.current
       if (el === null) return
-      const scrollable = el.scrollHeight > el.clientHeight + 8
+      if (full === true) contentBottom.current = measureContent()
+      // 只有「纸真的伸到视口下面」才算能滚；空着的那截画布不算
+      const scrollable = contentBottom.current > el.clientHeight + 8
       const atTop = el.scrollTop <= 4
-      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 6
+      const atBottom = el.scrollTop + el.clientHeight >= Math.min(el.scrollHeight, contentBottom.current) - 6
       if (scrollable === scrollState.scrollable && atTop === scrollState.atTop && atBottom === scrollState.atBottom) return
       setScrollState({ scrollable, atTop, atBottom })
     }
@@ -1804,7 +1832,7 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
 
     // 滚动按钮的可见性：挂载后量一次，之后跟着滚动 / 尺寸变化 / 便签数量刷新
     React.useEffect(() => {
-      syncScroll()
+      syncScroll(true)
       const el = wallRef.current
       if (el === null) return undefined
       wallEl = el
@@ -1813,27 +1841,28 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
         if (frame !== 0) return
         frame = requestAnimationFrame(() => {
           frame = 0
-          syncScroll()
+          syncScroll(false) // 滚动时只更新头尾状态，不重新量内容
         })
       }
       el.addEventListener('scroll', onScroll, { passive: true })
-      const observer = new ResizeObserver(() => syncScroll())
+      const observer = new ResizeObserver(() => syncScroll(true))
       observer.observe(el)
       if (canvasRef.current !== null) observer.observe(canvasRef.current)
-      window.addEventListener('resize', syncScroll)
-      const timer = setInterval(syncScroll, 1200)
+      const onResize = () => syncScroll(true)
+      window.addEventListener('resize', onResize)
+      const timer = setInterval(() => syncScroll(true), 1200)
       return () => {
         el.removeEventListener('scroll', onScroll)
         if (frame !== 0) cancelAnimationFrame(frame)
         observer.disconnect()
-        window.removeEventListener('resize', syncScroll)
+        window.removeEventListener('resize', onResize)
         clearInterval(timer)
         if (wallEl === el) wallEl = null
       }
     }, [])
 
     React.useEffect(() => {
-      syncScroll()
+      syncScroll(true)
     }, [wall.notes.length, wall.trashOpen])
 
     // 抽屉开着时 Esc 直接关掉（正在写便签时让 Esc 先给输入框）

@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-sticky-wall",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "type": "module",
   "description": "便签墙：DSH 侧栏一块可自由摆放的便签墙（待办勾选、有序/无序列表、可折叠、横线纸开关、可调大小、纸感纹理、回收站抽屉、跨会话持久化），并给模型 5 个 sticky_wall_* 工具，让「记到便签墙」这类话直接落到墙上。",
   "repository": {
@@ -21,10 +21,12 @@
     "index.js",
     "client.js",
     "cordis.patch.yml",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=20",
+    "dsh": ">=0.2.1-rc.4 <0.3.0-0"
   },
   "dsh": {
     "bundle": {
@@ -39,7 +41,10 @@
     "deepseek-harness",
     "sticky-notes",
     "note-wall",
-    "便签墙"
+    "notes",
+    "todo",
+    "便签墙",
+    "便签"
   ],
   "license": "MIT"
 }

@@ -257,6 +257,8 @@ export function apply(ctx, config) {
 
   /** @type {Array<object>} */
   let notes = []
+  /** 坏文件被备份到哪了（空串=没发生过）。会随快照带给 UI，让用户知道「便签去哪了」。 */
+  let corruptBackup = ''
 
   function load() {
     try {
@@ -284,7 +286,16 @@ export function apply(ctx, config) {
       return true
     } catch (error) {
       if (error?.code !== 'ENOENT') {
-        console.error(`[dsh-plugin-sticky-wall] 读取 ${storePath} 失败：`, error?.message || String(error))
+        // 文件读不出来（半截 JSON / 硬盘错误 / 手改坏了）：先原样备份，绝不让下一次保存把它抹平。
+        // 备份文件名带时间戳，用户还能自己去抢救。
+        const backup = `${storePath}.corrupt-${Date.now()}`
+        try {
+          renameSync(storePath, backup)
+          corruptBackup = backup
+          console.error(`[dsh-plugin-sticky-wall] ${storePath} 解析失败，原文件已备份为 ${backup}：`, error?.message || String(error))
+        } catch (renameError) {
+          console.error('[dsh-plugin-sticky-wall] 读取失败且备份也失败：', error?.message || String(error), '|', renameError?.message || String(renameError))
+        }
       }
       return false
     }
@@ -435,7 +446,12 @@ export function apply(ctx, config) {
       trash: withTrash ? trash : [],
       trashCount: trash.length,
       colors: COLORS,
-      store: { path: storePath, defaultPath: defaultStorePath, configured: storePath !== defaultStorePath },
+      store: {
+        path: storePath,
+        defaultPath: defaultStorePath,
+        configured: storePath !== defaultStorePath,
+        backup: corruptBackup,
+      },
     }
   }
 
@@ -518,6 +534,8 @@ export function apply(ctx, config) {
         }
 
         const body = await readJson(req)
+        // 所有改动都等落盘再回包：「已保存」才对得起用户，进程被强杀也不丢刚写的东西
+        const durable = () => writeChain
 
         if (action === '/snapshot') {
           sendJson(res, 200, Object.assign({ ok: true }, snapshotBody(withTrash)))
@@ -531,6 +549,7 @@ export function apply(ctx, config) {
             return
           }
           const result = upsertMany(inputs)
+          await durable()
           const head = { ok: true, saved: result.saved.map((n) => n.id), skipped: result.skipped, full: result.full }
           // light：保存回包不带整面墙（客户端每次都传它，500 张时这会多传约 1MB）
           if (body?.light === true) {
@@ -543,6 +562,7 @@ export function apply(ctx, config) {
 
         if (action === '/remove') {
           const note = removeNote(typeof body?.id === 'string' ? body.id : '')
+          await durable()
           sendJson(res, note === null ? 404 : 200, note === null
             ? { ok: false, error: '未找到该便签' }
             : Object.assign({ ok: true, trashed: note.id }, snapshotBody()))
@@ -551,6 +571,7 @@ export function apply(ctx, config) {
 
         if (action === '/restore') {
           const note = restoreNote(typeof body?.id === 'string' ? body.id : '')
+          await durable()
           sendJson(res, note === null ? 404 : 200, note === null
             ? { ok: false, error: '回收站里没有这张便签' }
             : Object.assign({ ok: true, restored: note.id }, snapshotBody()))
@@ -559,6 +580,7 @@ export function apply(ctx, config) {
 
         if (action === '/purge') {
           const ok = purgeNote(typeof body?.id === 'string' ? body.id : '')
+          await durable()
           sendJson(res, ok ? 200 : 404, ok
             ? Object.assign({ ok: true }, snapshotBody())
             : { ok: false, error: '回收站里没有这张便签' })
@@ -567,12 +589,14 @@ export function apply(ctx, config) {
 
         if (action === '/purge-all') {
           const removed = purgeAllTrash()
+          await durable()
           sendJson(res, 200, Object.assign({ ok: true, removed }, snapshotBody()))
           return
         }
 
         if (action === '/clear') {
           const count = clearWall()
+          await durable()
           sendJson(res, 200, Object.assign({ ok: true, removed: count }, snapshotBody()))
           return
         }

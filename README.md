@@ -1,20 +1,33 @@
 # 便签墙 · dsh-plugin-sticky-wall
 
-DSH 侧栏里的一面便签墙：随手贴、随手拖、随手改，**并且模型能直接往上贴**。
-不是待办清单——待办有 `todo_write`；便签墙放的是那些「先记一下」的碎片，
-要清单也能就地长成清单。
+**DSH 侧栏里的一块便签墙**：随手贴、随手拖、能手写清单，删了也找得回来。
+模型也能往上贴——说一句「记到便签墙」，纸条就真的贴上去了。
 
-![便签墙](docs/wall-light.png)
+```sh
+dsh plugin add dsh-plugin-sticky-wall
+```
 
-![一张清单便签](docs/note-closeup.png)
+重启 DSH，侧栏多一个便签图标。没有配置文件、没有登录、不联网，数据就在 `~/.dsh/sticky-wall.json`。
 
-![折叠](docs/collapsed.png)
+![便签墙](https://raw.githubusercontent.com/zmengle/dsh-plugin-sticky-wall/main/docs/wall-light.jpg)
 
-![回收站抽屉](docs/trash.png)
+**它和自带的待办（`todo_write`）有什么区别？** 待办是「我有几件事要做」；便签墙是「先记一下」——
+一块可以随手摆的桌面。要清单也没问题：行首敲 `- ` 或 `1. ` 当场就变成清单。
 
-![滚动到底](docs/scroll.png)
+- 四种行格式混排（正文 / 待办 / 无序 / 有序），点方框就打勾
+- 8 种纸色、可选横线纸、可拖大小、可折叠成两行
+- 删除进回收站（30 天 / 500 张），能撤销、能恢复
+- 模型 5 个工具：`sticky_wall_list / add / update / remove / restore`
 
-![提示条不互相顶掉](docs/toasts.png)
+![一张清单便签](https://raw.githubusercontent.com/zmengle/dsh-plugin-sticky-wall/main/docs/note-closeup.jpg)
+
+## 更多截图
+
+![折叠（折叠时也能直接选词）](https://raw.githubusercontent.com/zmengle/dsh-plugin-sticky-wall/main/docs/collapsed.jpg)
+
+![回收站抽屉](https://raw.githubusercontent.com/zmengle/dsh-plugin-sticky-wall/main/docs/trash.jpg)
+
+![提示条不会互相顶掉](https://raw.githubusercontent.com/zmengle/dsh-plugin-sticky-wall/main/docs/toasts.jpg)
 
 ## 功能
 
@@ -95,6 +108,10 @@ DSH 侧栏里的一面便签墙：随手贴、随手拖、随手改，**并且�
 ## 数据与隐私
 
 - 全部数据只存在本机（默认 `~/.dsh/sticky-wall.json`，**路径可配置**，见下），不上传、不联网。
+- **文件坏了不会静默重写**：启动时如果 JSON 解析失败，原文件会被改名备份成
+  `sticky-wall.json.corrupt-<时间戳>`，面板里也会弹一条提示告诉你备份路径——保证「数据消失」是可追的，
+  而不是被下一次保存覆盖掉。
+- 改动的 HTTP 回包是**等落盘之后**才发的，所以面板上的「已保存 HH:MM」是真的写进了磁盘。
 - 一张便签 = `lines[]`（每行 `kind/text/done`）+ 纸色/位置/置顶/横线开关 + 尺寸（`w`、`minLines`）
   + 折叠状态（`collapsed`）+ 回收站标记（`trashed`、`deletedAt`）；
   `text` 是从行派生的可读副本，给搜索和工具用——所以老数据（只有 `text`）能直接读，
@@ -193,13 +210,21 @@ dsh-plugin-sticky-wall/
 ## 安装 / 卸载
 
 ```bash
-# 装（profile 里以 file: 依赖链接本目录）
-dsh plugin add D:/workspace/dsh/dsh-plugin-sticky-wall
-# 或直接让 agent 调 plugin_manager install_bundle
+# 从 npm 装（推荐）
+dsh plugin add dsh-plugin-sticky-wall
 
-# 卸载
+# 从源码装（跑最新 main）
+dsh plugin add git+https://github.com/zmengle/dsh-plugin-sticky-wall.git
+
+# 本地目录
+dsh plugin add D:/path/to/dsh-plugin-sticky-wall
+
+# 卸载（不会删你的便签文件）
 dsh plugin remove dsh-plugin-sticky-wall
 ```
+
+装完重启 `dsh web`，侧栏就会出现便签图标。**要求 DSH ≥ 0.2.1-rc.4**（`engines.dsh` 已声明，
+不满足的版本会被插件管理器直接拦住，而不是装上一个空白面板）。
 
 ## 已知限制
 
@@ -214,3 +239,8 @@ dsh plugin remove dsh-plugin-sticky-wall
 - 不做富文本/附件——便签就该是纯文本。
 - 鉴权沿用 DSH 自身的本地回环边界：接口做了同源校验（跨站 403、非 JSON 415），
   但同一台机器上的进程（脚本、其它本地程序）仍然能直接读写那个 JSON 文件——这是本地应用的固有边界。
+
+## 更新日志
+
+见 [CHANGELOG.md](CHANGELOG.md)。
+
