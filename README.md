@@ -17,6 +17,7 @@ dsh plugin add dsh-plugin-sticky-wall
 - 四种行格式混排（正文 / 待办 / 无序 / 有序），点方框就打勾
 - 8 种纸色、可选横线纸、可拖大小、可折叠成两行
 - 删除进回收站（30 天 / 500 张），能撤销、能恢复
+- **导出 / 导入备份**，换电脑能搬走；数据位置可配置
 - 模型 5 个工具：`sticky_wall_list / add / update / remove / restore`
 
 ![一张清单便签](https://raw.githubusercontent.com/zmengle/dsh-plugin-sticky-wall/main/docs/note-closeup.jpg)
@@ -63,8 +64,10 @@ dsh plugin add dsh-plugin-sticky-wall
   行内保持你的左右顺序、统一左对齐、间距 16px；行与行按「这一行最高 + 16px」往下排，
   左边距 18px。**不会因为某张纸大就把它排到后面去**——宽纸还待在它那一行里。
   一行真的比面板宽时，先把行内间距压到 8px，仍放不下才把这一行末尾的几张挪到下一行。
-- **跨会话持久化**：`$DSH_HOME/sticky-wall.json`（默认 `~/.dsh/sticky-wall.json`），原子写。
-- **和模型联动**：4 个工具，说一句「把这条记到便签墙」就会真的贴上；
+- **跨会话持久化**：`$DSH_HOME/sticky-wall.json`（默认 `~/.dsh/sticky-wall.json`），原子写、写失败会备份原文件。
+- **备份与迁移**：工具栏齿轮里能导出 JSON（含回收站）、导入时可选合并或整体覆盖；设置面板还显示版本、
+  条数、数据大小和路径。
+- **和模型联动**：5 个工具，说一句「把这条记到便签墙」就会真的贴上；
   模型贴来的 Markdown（`- [ ]` / `- ` / `1. `）会自动解析成复选框和列表；
   模型贴的便签 6 秒内自动出现在墙面上（面板可见时轮询）。
 
@@ -91,7 +94,21 @@ dsh plugin add dsh-plugin-sticky-wall
 | 墙面右下 ↑ / ↓ | 一键到最上 / 最下（**只有内容超出一屏时才出现**，到头的那个变灰） |
 | 「只看置顶」筛选 | 只看置顶便签（和抬头那个「置顶」不是一回事） |
 | 「整理」 / 「清空」 | 对齐排布 / 连点两次清空（清空也进回收站） |
+| 工具栏最右的「设置」 | 版本、条数、数据大小、存储路径、**导出 / 导入备份** |
 | 页脚右侧的路径 | 数据文件位置，点一下复制路径 |
+
+## 备份与迁移
+
+数据只在本机一个 JSON 里（默认 `~/.dsh/sticky-wall.json`），所以给了两条正经出口：
+
+- **导出备份**：设置面板里点一下，下载 `sticky-wall-20261107-0216.json`——
+  墙上 + 回收站全都在，勾选状态、纸色、位置、尺寸一个不落。
+- **导入备份**：选文件后先告诉你要导入几张，再让你选：
+  - **合并进来**：文件里的便签加到墙上，现有的不动（id 撞了会自动换新 id）；
+  - **覆盖现有**：整体替换（含回收站），要点两次确认。
+
+换电脑就是「在旧机器上导出 → 拷文件 → 新机器导入」，或者直接把 `sticky-wall.json` 拷过去。
+想放到别的位置（比如同步盘）见下面的「配置」。
 
 ## 模型工具
 
@@ -154,8 +171,11 @@ dsh-plugin-sticky-wall/
 
 - 双面插件：Host 起 `webServer` 前缀路由 `/api/dsh-sticky-wall/*`，Client 同源 `fetch` 读写，
   不碰 typert/remote，也就没有版本适配问题。
-- **端点**：`/snapshot`、`/upsert`、`/remove`（软删除）、`/restore`、`/purge`、`/purge-all`、`/clear`（也是软删除）。
+- **端点**：`/snapshot`、`/upsert`、`/remove`（软删除）、`/restore`、`/purge`、`/purge-all`、`/clear`（也是软删除）、
+  `GET /export`（导出整份数据）、`POST /import`（`mode=merge|replace`，上限 8MB）。
   除了 upsert 的 saved/skipped/full，回包统一带 `{ notes, trash, trashCount, colors, store }`，客户端一份合并逻辑就能覆盖所有动作。
+- **导入的两条语义**：`merge` 只加不删、撞 id 自动换新 id（防止覆盖现有内容）；
+  `replace` 整体替换（含回收站），UI 上要点两次确认。
 - **两条瘦身通道**（回收站和墙都可能很大，别每次全量搬）：
   - `/snapshot?trash=0` 只回 `trashCount`，明细留空。客户端轮询用它，条数变了才补拉一次明细（抽屉打开时也会补）。
   - `/upsert` 带 `light: true` 时不回整面墙（保存回包实测 1.1MB → 几 KB）。客户端保存只等 ack，本地就是权威。

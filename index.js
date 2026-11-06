@@ -11,9 +11,12 @@
  * 宿主解析第三方包的 ESM 钩子不保证可用，零依赖最稳。
  */
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
+
+/** 版本号：跟着 package.json 走，展示在面板的「设置」里（手工同步，改版本时别忘了这里）。 */
+const PACKAGE_VERSION = '1.8.0'
 
 /** Cordis 插件名 —— 与 package.json 的 name、cordis.patch.yml 的行 name 保持一致。 */
 export const name = 'dsh-plugin-sticky-wall'
@@ -24,8 +27,9 @@ export const inject = ['webServer']
 /** 端点前缀（Client 半侧同一常量）。 */
 const API_PREFIX = '/api/dsh-sticky-wall'
 
-/** 单文件上限：超过就拒绝（防误传大文件）。 */
+/** 单文件上限：超过就拒绝（防误传大文件）。导入备份单独放宽到 8MB（500 张的墙可能上 MB）。 */
 const MAX_BODY_BYTES = 256 * 1024
+const MAX_IMPORT_BYTES = 8 * 1024 * 1024
 
 /** 便签条数 / 正文长度上限。 */
 const MAX_NOTES = 500
@@ -441,6 +445,8 @@ export function apply(ctx, config) {
    */
   const snapshotBody = (withTrash = true) => {
     const trash = trashNotes()
+    let bytes = 0
+    try { bytes = statSync(storePath).size } catch { /* 文件还没落盘 */ }
     return {
       notes: sorted(),
       trash: withTrash ? trash : [],
@@ -451,19 +457,60 @@ export function apply(ctx, config) {
         defaultPath: defaultStorePath,
         configured: storePath !== defaultStorePath,
         backup: corruptBackup,
+        bytes,
+        version: PACKAGE_VERSION,
       },
     }
   }
 
+  /** 导出用的完整数据：墙上 + 回收站，原样（含未知字段），给用户自己备份。 */
+  const exportBody = () => ({
+    version: 1,
+    app: 'dsh-plugin-sticky-wall',
+    packageVersion: PACKAGE_VERSION,
+    exportedAt: new Date(nowMs()).toISOString(),
+    notes,
+  })
+
+  /**
+   * 导入：`mode=replace` 整体替换（含回收站），`mode=merge` 只把文件里的便签加进来。
+   * 合并时为避免覆盖现有内容，撞 id 的会换一个新 id。
+   * @returns {{ added: number, replaced: boolean }}
+   */
+  function importNotes(rawNotes, mode) {
+    const list = Array.isArray(rawNotes) ? rawNotes : []
+    const parsed = list
+      .filter((item) => item !== null && typeof item === 'object')
+      .slice(0, MAX_NOTES + MAX_TRASH)
+      .map((item) => normalizeNote(item, undefined))
+    if (parsed.length === 0) throw new Error('文件里没有可导入的便签')
+    if (mode === 'replace') {
+      notes = parsed
+      return { added: parsed.length, replaced: true }
+    }
+    const taken = new Set(notes.map((n) => n.id))
+    let added = 0
+    for (const note of parsed) {
+      if (!note.trashed && wallNotes().length >= MAX_NOTES) break
+      if (taken.has(note.id)) note.id = newId()
+      taken.add(note.id)
+      // 合并进来的纸放最上层，免得被压住看不见
+      note.z = notes.reduce((max, n) => Math.max(max, n.z || 0), 0) + 1
+      notes.push(note)
+      added += 1
+    }
+    return { added, replaced: false }
+  }
+
   // ---- HTTP 端点（Client 半侧同源 fetch） ----
 
-  async function readJson(req) {
+  async function readJson(req, limit = MAX_BODY_BYTES) {
     const chunks = []
     let total = 0
     for await (const chunk of req) {
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
       total += buf.byteLength
-      if (total > MAX_BODY_BYTES) throw new Error('请求体过大')
+      if (total > limit) throw new Error('请求体过大（上限 ' + Math.round(limit / 1024 / 1024 * 10) / 10 + 'MB）')
       chunks.push(buf)
     }
     const raw = Buffer.concat(chunks).toString('utf8').trim()
@@ -521,6 +568,11 @@ export function apply(ctx, config) {
           sendJson(res, 200, Object.assign({ ok: true }, snapshotBody(withTrash)))
           return
         }
+        // 导出：墙上 + 回收站原样吐出来，客户端自己存成文件
+        if (req.method === 'GET' && action === '/export') {
+          sendJson(res, 200, Object.assign({ ok: true }, exportBody()))
+          return
+        }
         if (req.method !== 'POST') {
           res.writeHead(405, { allow: 'GET, POST' })
           res.end('method not allowed')
@@ -533,12 +585,21 @@ export function apply(ctx, config) {
           return
         }
 
-        const body = await readJson(req)
+        const body = await readJson(req, action === '/import' ? MAX_IMPORT_BYTES : MAX_BODY_BYTES)
         // 所有改动都等落盘再回包：「已保存」才对得起用户，进程被强杀也不丢刚写的东西
         const durable = () => writeChain
 
         if (action === '/snapshot') {
           sendJson(res, 200, Object.assign({ ok: true }, snapshotBody(withTrash)))
+          return
+        }
+
+        if (action === '/import') {
+          const mode = body?.mode === 'replace' ? 'replace' : 'merge'
+          const rawNotes = Array.isArray(body?.notes) ? body.notes : (Array.isArray(body?.data?.notes) ? body.data.notes : [])
+          const result = importNotes(rawNotes, mode)
+          await durable()
+          sendJson(res, 200, Object.assign({ ok: true, added: result.added, replaced: result.replaced }, snapshotBody()))
           return
         }
 

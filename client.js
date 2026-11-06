@@ -289,6 +289,27 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
 .sw-miniBtn--danger:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);border-color:var(--dsw-alias-state-error-primary)}
 .sw-trashFoot{flex:none;padding:8px 10px;border-top:1px solid var(--dsw-alias-border-l1)}
 .sw-trashFoot .sw-btn{width:100%;justify-content:center;height:28px}
+/* 设置面板：挂在工具栏右下方，遮罩只负责「点外面关掉」 */
+.sw-settingsScrim{position:absolute;inset:0;z-index:46500;background:transparent}
+.sw-settings{position:absolute;top:54px;right:14px;z-index:47000;width:min(300px,calc(100% - 28px));display:flex;flex-direction:column;border-radius:12px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-shadow:0 18px 40px -14px rgba(0,0,0,.4);overflow:hidden;animation:sw-settings-in .14s ease-out}
+@keyframes sw-settings-in{from{transform:translateY(-6px);opacity:.4}to{transform:none;opacity:1}}
+.sw-settingsHead{flex:none;display:flex;align-items:center;gap:8px;padding:10px 8px 8px 14px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.sw-settingsTitle{font-size:13px;font-weight:600;letter-spacing:.02em}
+.sw-settingsVersion{font-size:11px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}
+.sw-settingsBody{display:flex;flex-direction:column;gap:10px;padding:12px 14px 14px}
+.sw-kv{font-size:12px;line-height:1.6;color:var(--dsw-alias-label-secondary)}
+.sw-kv b{color:var(--dsw-alias-label-primary);font-weight:600;font-variant-numeric:tabular-nums}
+.sw-pathRow{display:flex;align-items:center;gap:6px}
+.sw-pathCode{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:ui-monospace,Consolas,monospace;font-size:11px;padding:5px 8px;border-radius:7px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-secondary)}
+.sw-miniBtn--icon{display:inline-flex;align-items:center;justify-content:center;width:26px;padding:0}
+.sw-hint{margin:0;font-size:11px;line-height:1.65;color:var(--dsw-alias-label-secondary)}
+.sw-settingsActions{display:flex;gap:8px}
+.sw-settingsActions .sw-btn{flex:1 1 0;justify-content:center;height:28px}
+.sw-fileBtn{cursor:pointer}
+.sw-importBox{display:flex;flex-direction:column;gap:8px;padding:9px 10px;border-radius:9px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base)}
+.sw-importTitle{font-size:12px;line-height:1.5;word-break:break-all}
+.sw-importActions{display:flex;gap:6px;flex-wrap:wrap}
+.sw-btn--icon{width:30px;padding:0;justify-content:center}
 .sw-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:24px;pointer-events:none}
 .sw-empty>svg{opacity:.28}
 .sw-empty-title{font-size:14.5px;font-weight:600;letter-spacing:.02em}
@@ -430,6 +451,9 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     savedAt: 0,
     confirmClear: false,
     confirmPurge: false,
+    settingsOpen: false,
+    importPending: null, // { notes, fileName, count } —— 选好文件、等用户决定合并还是覆盖
+    importArmed: false, // 「覆盖」的第二次确认
     trashOpen: trashPref.pinned,
     trashPinned: trashPref.pinned,
     toasts: [], // [{ id, text, kind, action? }] —— 最多 3 条，互不顶掉
@@ -765,6 +789,90 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     }
   }
 
+  // -------------------------------------------------------------------------
+  // 设置 / 备份
+  // -------------------------------------------------------------------------
+
+  function toggleSettings() {
+    const open = !state.settingsOpen
+    setState({ settingsOpen: open, importPending: open ? state.importPending : null, importArmed: false })
+    if (open && state.trashOpen) setState({ trashOpen: false })
+    if (open) load(true, true) // 打开时刷一次：条数/文件大小要最新
+  }
+
+  /** 文件名里带时间，多份备份不会互相覆盖。 */
+  function backupFileName() {
+    const d = new Date()
+    const pad = (n) => String(n).padStart(2, '0')
+    return 'sticky-wall-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate())
+      + '-' + pad(d.getHours()) + pad(d.getMinutes()) + '.json'
+  }
+
+  /** 导出：拉一份完整数据（墙上 + 回收站），用 Blob 触发下载。 */
+  async function exportBackup() {
+    try {
+      const res = await fetch(API + '/export', { cache: 'no-store' })
+      const text = await res.text()
+      const data = JSON.parse(text)
+      if (data.ok === false) throw new Error(data.error || '导出失败')
+      const payload = JSON.stringify({
+        version: data.version,
+        app: data.app,
+        packageVersion: data.packageVersion,
+        exportedAt: data.exportedAt,
+        notes: data.notes,
+      }, null, 2)
+      const blob = new Blob([payload], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = backupFileName()
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 4000)
+      notify('已导出 ' + data.notes.length + ' 张便签到 ' + link.download, 'ok')
+    } catch (error) {
+      notify('导出失败：' + String(error?.message || error), 'error')
+    }
+  }
+
+  /** 选文件 → 只解析、不写入，先把「要导入几张」摆给用户看。 */
+  async function pickImport(file) {
+    if (file === null || file === undefined) return
+    try {
+      const text = await file.text()
+      const data = JSON.parse(text)
+      const notes = Array.isArray(data?.notes) ? data.notes : (Array.isArray(data) ? data : null)
+      if (notes === null) throw new Error('不是便签墙的备份文件（找不到 notes 数组）')
+      if (notes.length === 0) throw new Error('文件里没有便签')
+      setState({ importPending: { notes, fileName: file.name, count: notes.length }, importArmed: false })
+    } catch (error) {
+      notify('这个文件读不了：' + String(error?.message || error), 'error')
+      setState({ importPending: null, importArmed: false })
+    }
+  }
+
+  async function applyImport(mode) {
+    const pending = state.importPending
+    if (pending === null) return
+    if (mode === 'replace' && state.importArmed !== true) {
+      setState({ importArmed: true })
+      return
+    }
+    try {
+      const data = await rpc('/import', { mode, notes: pending.notes })
+      mergeRemote(data.notes)
+      if (Array.isArray(data.trash)) mergeTrash(data.trash)
+      setState({ importPending: null, importArmed: false, savedAt: Date.now() })
+      notify(mode === 'replace'
+        ? '已用备份替换整面墙（' + pending.count + ' 张）'
+        : '已合并 ' + (typeof data.added === 'number' ? data.added : pending.count) + ' 张便签', 'ok')
+    } catch (error) {
+      notify('导入失败：' + String(error?.message || error), 'error')
+    }
+  }
+
   function toggleTrash() {
     const open = !state.trashOpen
     setState({ trashOpen: open })
@@ -945,6 +1053,20 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
   /** 收起 / 展开：一个朝下、一个朝上 */
   const collapsePath = React.createElement('path', { d: 'M6 9.5 12 15.5 18 9.5' })
   const expandPath = React.createElement('path', { d: 'M6 14.5 12 8.5 18 14.5' })
+  /** 设置：三条滑杆（小尺寸下比齿轮清楚） */
+  const settingsPath = React.createElement(React.Fragment, null,
+    React.createElement('path', { d: 'M4 7h9 M17 7h3 M4 12h3 M11 12h9 M4 17h11' }),
+    React.createElement('circle', { cx: 15, cy: 7, r: 2, fill: 'currentColor', stroke: 'none' }),
+    React.createElement('circle', { cx: 9, cy: 12, r: 2, fill: 'currentColor', stroke: 'none' }),
+    React.createElement('circle', { cx: 17, cy: 17, r: 2, fill: 'currentColor', stroke: 'none' }))
+  /** 导出：向下箭头落到托盘 */
+  const downloadPath = React.createElement('path', { d: 'M12 4v9 M8 9.5l4 4 4-4 M4.5 17.5v2.5h15v-2.5' })
+  /** 导入：从托盘向上箭头 */
+  const uploadPath = React.createElement('path', { d: 'M12 13V4 M8 7.5l4-4 4 4 M4.5 17.5v2.5h15v-2.5' })
+  /** 复制：两张叠起来的纸 */
+  const copyPath = React.createElement(React.Fragment, null,
+    React.createElement('rect', { x: 8.5, y: 8.5, width: 11, height: 11, rx: 2.5 }),
+    React.createElement('path', { d: 'M15.5 5.5H6.5A2 2 0 0 0 4.5 7.5v9' }))
 
   /** 侧栏图标：一张贴着的便签（currentColor，跟随选中态）。 */
   function SidebarIcon({ size = 16 }) {
@@ -1742,6 +1864,106 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
   }
 
   // -------------------------------------------------------------------------
+  // 设置（版本 / 数据量 / 存储路径 / 导出导入）
+  // -------------------------------------------------------------------------
+
+  /** 文件大小：人类可读（数据可能小到几百字节，也可能到 MB）。 */
+  function formatBytes(bytes) {
+    const n = typeof bytes === 'number' && Number.isFinite(bytes) ? bytes : 0
+    if (n < 1024) return n + ' B'
+    if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB'
+    return (n / 1024 / 1024).toFixed(1) + ' MB'
+  }
+
+  function SettingsPanel() {
+    const wall = useWall()
+    const store = wall.store
+    const pending = wall.importPending
+    const fileRef = React.useRef(null)
+    const close = () => setState({ settingsOpen: false, importPending: null, importArmed: false })
+
+    return React.createElement('div', {
+      className: 'sw-settings',
+      role: 'dialog',
+      'aria-label': '便签墙设置',
+    },
+      React.createElement('div', { className: 'sw-settingsHead' },
+        React.createElement('span', { className: 'sw-settingsTitle' }, '便签墙'),
+        React.createElement('span', { className: 'sw-settingsVersion' }, 'v' + (store === null ? '—' : store.version)),
+        React.createElement('div', { className: 'sw-spacer' }),
+        React.createElement('button', {
+          type: 'button',
+          className: 'sw-iconBtn',
+          'aria-label': '关闭设置',
+          title: '关闭',
+          onClick: close,
+        }, React.createElement(Icon, { size: 13 }, closePath))),
+      React.createElement('div', { className: 'sw-settingsBody' },
+        React.createElement('div', { className: 'sw-kv' },
+          '正文 ', React.createElement('b', null, wall.notes.length),
+          ' 张 · 回收站 ', React.createElement('b', null, wall.trashTotal),
+          ' 张 · 数据 ', React.createElement('b', null, store === null ? '—' : formatBytes(store.bytes))),
+        React.createElement('div', { className: 'sw-pathRow' },
+          React.createElement('code', {
+            className: 'sw-pathCode',
+            title: store === null ? '' : store.path,
+          }, store === null ? '—' : shortPath(store.path)),
+          React.createElement('button', {
+            type: 'button',
+            className: 'sw-miniBtn sw-miniBtn--icon',
+            'aria-label': '复制存储路径',
+            title: '复制完整路径',
+            onClick: () => copyStorePath(store === null ? '' : store.path),
+          }, React.createElement(Icon, { size: 11 }, copyPath))),
+        React.createElement('p', { className: 'sw-hint' },
+          '换存储位置：在插件配置里加 storePath（绝对路径 / ~/… / 相对 $DSH_HOME），然后重启 DSH。'),
+        React.createElement('div', { className: 'sw-settingsActions' },
+          React.createElement('button', {
+            type: 'button',
+            className: 'sw-btn',
+            title: '把墙上 + 回收站的全部便签存成一个 JSON 文件',
+            onClick: exportBackup,
+          }, React.createElement(Icon, { size: 12 }, downloadPath), '导出备份'),
+          React.createElement('label', {
+            className: 'sw-btn sw-fileBtn',
+            title: '从备份 JSON 恢复（可合并，也可以整体覆盖）',
+          },
+            React.createElement(Icon, { size: 12 }, uploadPath), '导入备份',
+            React.createElement('input', {
+              ref: fileRef,
+              type: 'file',
+              accept: '.json,application/json',
+              style: { display: 'none' },
+              onChange: (event) => {
+                const file = event.target.files !== null && event.target.files.length > 0 ? event.target.files[0] : null
+                event.target.value = ''
+                pickImport(file)
+              },
+            }))),
+        pending === null ? null : React.createElement('div', { className: 'sw-importBox' },
+          React.createElement('div', { className: 'sw-importTitle' },
+            '已选 ', React.createElement('b', null, pending.fileName), '（', pending.count, ' 张）'),
+          React.createElement('div', { className: 'sw-importActions' },
+            React.createElement('button', {
+              type: 'button',
+              className: 'sw-miniBtn',
+              title: '把文件里的便签加到墙上，现有的不动',
+              onClick: () => applyImport('merge'),
+            }, '合并进来'),
+            React.createElement('button', {
+              type: 'button',
+              className: 'sw-miniBtn sw-miniBtn--danger',
+              title: '用文件里的内容替换整面墙（含回收站）',
+              onClick: () => applyImport('replace'),
+            }, wall.importArmed ? '确认覆盖现有' : '覆盖现有'),
+            React.createElement('button', {
+              type: 'button',
+              className: 'sw-miniBtn',
+              onClick: () => setState({ importPending: null, importArmed: false }),
+            }, '取消')))))
+  }
+
+  // -------------------------------------------------------------------------
   // 主面板
   // -------------------------------------------------------------------------
 
@@ -1865,18 +2087,19 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
       syncScroll(true)
     }, [wall.notes.length, wall.trashOpen])
 
-    // 抽屉开着时 Esc 直接关掉（正在写便签时让 Esc 先给输入框）
+    // 抽屉 / 设置开着时 Esc 直接关掉（正在写便签时让 Esc 先给输入框）
     React.useEffect(() => {
-      if (wall.trashOpen !== true) return undefined
+      if (wall.trashOpen !== true && wall.settingsOpen !== true) return undefined
       const onKeyDown = (event) => {
         if (event.key !== 'Escape') return
         const active = document.activeElement
         if (active !== null && active.tagName === 'TEXTAREA') return
-        setState({ trashOpen: false })
+        if (wall.settingsOpen === true) setState({ settingsOpen: false, importPending: null, importArmed: false })
+        else setState({ trashOpen: false })
       }
       document.addEventListener('keydown', onKeyDown)
       return () => document.removeEventListener('keydown', onKeyDown)
-    }, [wall.trashOpen])
+    }, [wall.trashOpen, wall.settingsOpen])
 
     const query = wall.query.trim().toLowerCase()
     const shown = wall.notes.filter((note) => {
@@ -2006,7 +2229,15 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
         },
           React.createElement(Icon, { size: 13 }, trashPath),
           '回收站',
-          wall.trash.length > 0 ? React.createElement('span', { className: 'sw-badge', 'aria-hidden': true }, wall.trash.length > 99 ? '99+' : String(wall.trash.length)) : null)),
+          wall.trash.length > 0 ? React.createElement('span', { className: 'sw-badge', 'aria-hidden': true }, wall.trash.length > 99 ? '99+' : String(wall.trash.length)) : null),
+        React.createElement('button', {
+          type: 'button',
+          className: 'sw-btn sw-btn--icon',
+          'aria-label': '设置',
+          'aria-pressed': String(wall.settingsOpen),
+          title: '设置 · 备份 · 数据位置',
+          onClick: toggleSettings,
+        }, React.createElement(Icon, { size: 14 }, settingsPath))),
       React.createElement('div', { className: 'sw-main' },
         React.createElement('div', { className: 'sw-wall', ref: wallRef, tabIndex: -1 },
           React.createElement('div', {
@@ -2068,7 +2299,12 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
           onClick: () => copyStorePath(wall.store.path),
         }, shortPath(wall.store.path)),
         statusNode),
-      toastNodes.length === 0 ? null : React.createElement('div', { className: 'sw-toasts' }, toastNodes))
+      toastNodes.length === 0 ? null : React.createElement('div', { className: 'sw-toasts' }, toastNodes),
+      wall.settingsOpen ? React.createElement(SettingsPanel, null) : null,
+      wall.settingsOpen ? React.createElement('div', {
+        className: 'sw-settingsScrim',
+        onClick: () => setState({ settingsOpen: false, importPending: null, importArmed: false }),
+      }) : null)
   }
 
   // -------------------------------------------------------------------------
