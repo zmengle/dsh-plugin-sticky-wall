@@ -16,6 +16,8 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
   const STYLE_ID = 'dsh-plugin-sticky-wall/styles'
 
   const MAX_TEXT = 4000
+  /** 与宿主侧 MAX_NOTES 保持一致：满了就别让对方乐观插入一张永远存不下的纸。 */
+  const MAX_NOTES = 500
   /** 纸色：亮纸 + 深墨，浅色/深色主题下都是「桌上的纸」而不是「界面里的卡片」。 */
   const PAPERS = {
     yellow: { label: '黄', bg: '#f6e7a6', ink: '#4a3a0c' },
@@ -183,9 +185,12 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
 .sw-btn--primary:hover{background:var(--dsw-alias-brand-primary);border-color:var(--dsw-alias-brand-primary);filter:brightness(1.08)}
 .sw-btn--danger{color:var(--dsw-alias-state-error-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 40%,transparent)}
 .sw-btn--danger:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);border-color:var(--dsw-alias-state-error-primary)}
+.sw-btn--trash[aria-pressed="true"]{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-primary)}
+.sw-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent);color:var(--dsw-alias-state-error-primary);font-size:10px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1}
 .sw-btn:disabled{opacity:.45;cursor:not-allowed}
 .sw-btn:disabled:hover{border-color:var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1)}
 .sw-wall{position:relative;flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain}
+.sw-wall:focus{outline:none}
 .sw-canvas{position:relative;width:100%;height:100%;min-height:640px;background-image:radial-gradient(circle at 1px 1px,var(--dsw-alias-border-l3) 1px,transparent 0);background-size:26px 26px;background-position:-1px -1px}
 /* 便签纸：--sw-lh 是行距，横线按同一节奏画在每行底部；--sw-pad-top 是正文上内边距，
    横线整体下移一行 + 内边距，于是第一条横线就是第一行的下沿（正文上方不留空线）。
@@ -244,20 +249,27 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
 .sw-resize:focus-visible{opacity:1;outline:2px solid currentColor;outline-offset:-2px}
 /* 窄便签：先收起调色盘，把位置让给行格式按钮（默认宽度 252 时仍显示） */
 @container (max-width: 240px){.sw-swatches{display:none}.sw-footSep{display:none}}
-/* 折叠：正文只留两行 + 底部渐隐，点一下整张展开；底部菜单此时让位 */
+/* 折叠：正文只留两行 + 底部渐隐，点一下整张展开；底部菜单此时让位。
+   正文不再禁止指针事件 —— 折叠态也能选词，靠 onClick 里判断「是不是在选词」来决定展不展开。 */
 .sw-note[data-collapsed="true"] .sw-body{min-height:0;max-height:calc(var(--sw-lh) * 2 + var(--sw-pad-top) + var(--sw-pad-bottom));overflow:hidden;cursor:pointer;-webkit-mask-image:linear-gradient(to bottom,#000 56%,rgba(0,0,0,.1));mask-image:linear-gradient(to bottom,#000 56%,rgba(0,0,0,.1))}
-.sw-note[data-collapsed="true"] .sw-lineText{pointer-events:none}
+.sw-note[data-collapsed="true"] .sw-lineText{cursor:pointer}
 .sw-note[data-collapsed="true"] .sw-noteFoot{display:none}
-.sw-collapsedChip{position:absolute;right:9px;bottom:5px;font-size:10px;letter-spacing:.04em;line-height:1.5;padding:1px 7px;border-radius:999px;background:color-mix(in srgb,currentColor 12%,transparent);opacity:.75;pointer-events:none}
-/* 回收站：右侧常驻窄标签，点开是抽屉；面板可固定。抽屉只占工具栏以下，上方按钮还能点 */
-.sw-trash{position:absolute;top:54px;right:0;bottom:34px;z-index:6000;display:flex;align-items:center;justify-content:flex-end;pointer-events:none}
-.sw-trash[data-open="true"]{align-items:stretch}
-.sw-trashTab{pointer-events:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;width:34px;height:78px;margin-right:7px;padding:8px 0;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;box-shadow:0 4px 10px rgba(0,0,0,.10);transition:color .15s,border-color .15s}
-.sw-trashTab:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l3)}
-.sw-trash[data-open="true"] .sw-trashTab{display:none}
-.sw-trashCount{font-size:10px;font-weight:600;font-variant-numeric:tabular-nums;min-width:16px;height:16px;line-height:16px;text-align:center;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent);color:var(--dsw-alias-state-error-primary)}
-.sw-trashScrim{position:absolute;inset:0;z-index:5500;background:transparent}
-.sw-trashPanel{pointer-events:auto;width:292px;margin:10px 10px 10px 0;display:flex;flex-direction:column;border-radius:12px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-shadow:0 18px 40px -14px rgba(0,0,0,.4);overflow:hidden;animation:sw-trash-in .16s ease-out}
+.sw-collapsedChip{position:absolute;right:24px;bottom:5px;font-size:10px;font-family:inherit;letter-spacing:.04em;line-height:1.5;padding:1px 7px;border:0;border-radius:999px;background:color-mix(in srgb,currentColor 12%,transparent);color:inherit;opacity:.75;cursor:pointer;transition:opacity .12s,background .12s}
+.sw-collapsedChip:hover{opacity:.95;background:color-mix(in srgb,currentColor 18%,transparent)}
+.sw-collapsedChip:focus-visible{outline:2px solid currentColor;outline-offset:1px}
+/* 主区：墙 + 抽屉 + 滚动按钮的定位容器（抽屉只盖住墙，不碰工具栏与页脚） */
+.sw-main{position:relative;flex:1 1 auto;min-height:0;display:flex}
+/* 层级：便签 ≤ 40000 < 滚动按钮 43000 < 遮罩 44000 < 抽屉 44100 < toast 50000 */
+.sw-scroll{position:absolute;right:16px;bottom:16px;z-index:43000;display:flex;flex-direction:column;gap:6px;opacity:0;pointer-events:none;transition:opacity .15s}
+.sw-scroll[data-visible="true"]{opacity:1;pointer-events:auto}
+.sw-scrollBtn{width:30px;height:30px;display:flex;align-items:center;justify-content:center;padding:0;border-radius:50%;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.16);transition:border-color .15s,opacity .15s}
+.sw-scrollBtn:hover{border-color:var(--dsw-alias-border-l3)}
+.sw-scrollBtn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+.sw-scrollBtn:disabled{opacity:.28;cursor:default}
+/* 回收站抽屉：右侧滑入，悬浮在墙上方，不挤压布局；窄面板下最多占墙宽 - 56px */
+.sw-trash{position:absolute;top:0;right:0;bottom:0;left:0;z-index:44100;display:flex;align-items:stretch;justify-content:flex-end;pointer-events:none}
+.sw-trashScrim{position:absolute;inset:0;z-index:44000;background:transparent}
+.sw-trashPanel{pointer-events:auto;width:min(300px,calc(100% - 56px));margin:10px 10px 10px 0;display:flex;flex-direction:column;border-radius:12px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-shadow:0 18px 40px -14px rgba(0,0,0,.4);overflow:hidden;animation:sw-trash-in .16s ease-out}
 @keyframes sw-trash-in{from{transform:translateX(14px);opacity:.35}to{transform:none;opacity:1}}
 .sw-trashHead{flex:none;display:flex;align-items:center;gap:8px;padding:9px 8px 8px 14px;border-bottom:1px solid var(--dsw-alias-border-l1)}
 .sw-trashTitle{font-size:13px;font-weight:600;letter-spacing:.02em}
@@ -285,9 +297,15 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
 .sw-foot{flex:none;display:flex;align-items:center;gap:10px;padding:7px 18px;border-top:1px solid var(--dsw-alias-border-l1);font-size:11px;letter-spacing:.01em;color:var(--dsw-alias-label-secondary)}
 .sw-foot-tip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .sw-foot .sw-spacer{flex:1 1 8px}
+.sw-path{flex:none;max-width:38%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0;border:0;background:none;color:var(--dsw-alias-label-secondary);font:inherit;letter-spacing:.01em;cursor:pointer;border-radius:5px}
+.sw-path:hover{color:var(--dsw-alias-label-primary);text-decoration:underline dotted}
+.sw-path:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:2px}
+.sw-path[data-configured="true"]{color:var(--dsw-alias-brand-primary)}
 .sw-status{white-space:nowrap;font-variant-numeric:tabular-nums}
 .sw-status--error{color:var(--dsw-alias-state-error-primary);background:none;border:0;padding:0;font:inherit;cursor:pointer;text-decoration:underline dotted}
-.sw-toast{position:absolute;left:50%;bottom:48px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;max-width:min(520px,calc(100% - 40px));padding:8px 12px 8px 15px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-overlay);color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.55;letter-spacing:.01em;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:9000;white-space:pre-wrap}
+/* 提示条：底部居中竖排，最多 3 条；新提示不顶掉旧的（尤其是带「撤销」的那条） */
+.sw-toasts{position:absolute;left:50%;bottom:48px;transform:translateX(-50%);z-index:50000;display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none;max-width:calc(100% - 40px)}
+.sw-toast{pointer-events:auto;display:flex;align-items:center;gap:10px;max-width:min(520px,100%);padding:8px 12px 8px 15px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-overlay);color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.55;letter-spacing:.01em;box-shadow:0 8px 24px rgba(0,0,0,.25);white-space:pre-wrap}
 .sw-toastText{flex:1 1 auto;min-width:0}
 .sw-toastAction{flex:none;height:24px;padding:0 10px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-brand-primary);font-size:12px;font-family:inherit;font-weight:600;cursor:pointer;white-space:nowrap}
 .sw-toastAction:hover{border-color:var(--dsw-alias-brand-primary)}
@@ -334,6 +352,23 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     const d = new Date(ms)
     const pad = (n) => String(n).padStart(2, '0')
     return pad(d.getHours()) + ':' + pad(d.getMinutes())
+  }
+
+  /** 存储路径只显示最后两段（完整路径放 title 里），避免把页脚撑开。 */
+  function shortPath(path) {
+    if (typeof path !== 'string' || path === '') return ''
+    const parts = path.split(/[\\/]+/).filter((part) => part !== '')
+    return parts.length <= 2 ? path : '…/' + parts.slice(-2).join('/')
+  }
+
+  /** 复制存储路径：优先用剪贴板 API，失败就退回选中文本提示。 */
+  async function copyStorePath(path) {
+    try {
+      await navigator.clipboard.writeText(path)
+      notify('已复制存储路径', 'ok')
+    } catch {
+      notify('复制失败，路径是：' + path, 'error')
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -383,6 +418,8 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
   let state = {
     notes: [],
     trash: [],
+    trashTotal: 0, // 服务端的回收站条数（我们手里这份明细对应它）
+    store: null, // { path, defaultPath, configured } —— 数据文件位置（可在插件配置里改）
     status: 'loading', // loading | ready | error
     error: '',
     query: '',
@@ -395,7 +432,7 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     confirmPurge: false,
     trashOpen: trashPref.pinned,
     trashPinned: trashPref.pinned,
-    toast: null, // { text, kind, action? }
+    toasts: [], // [{ id, text, kind, action? }] —— 最多 3 条，互不顶掉
   }
   const subscribers = new Set()
   const getSnapshot = () => state
@@ -411,14 +448,19 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     return React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot)
   }
 
-  let toastTimer = null
+  /**
+   * 提示条：最多同时 3 条，各自到点自己消失。
+   * 以前只有一条，「删除 → 撤销」会被后一条提示顶掉，所以改成小队列。
+   */
+  let toastSeq = 0
+  function dismissToast(id) {
+    if (!state.toasts.some((item) => item.id === id)) return
+    setState({ toasts: state.toasts.filter((item) => item.id !== id) })
+  }
   function notify(text, kind, action) {
-    if (toastTimer) clearTimeout(toastTimer)
-    setState({ toast: { text: String(text), kind: kind || 'info', action: action || null } })
-    toastTimer = setTimeout(() => {
-      toastTimer = null
-      setState({ toast: null })
-    }, action ? 6000 : 4200)
+    const toast = { id: ++toastSeq, text: String(text), kind: kind || 'info', action: action || null }
+    setState({ toasts: state.toasts.concat([toast]).slice(-3) })
+    setTimeout(() => dismissToast(toast.id), action ? 6000 : 4200)
   }
 
   /** 已进入保存流程、还没被服务端确认的 id —— 轮询合并时优先信本地。 */
@@ -463,19 +505,29 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     setState({ notes: next })
   }
 
-  /** 回收站快照：服务端是权威，直接整表替换。 */
+  /** 回收站快照：服务端是权威，直接整表替换（同时记下「服务端条数」= 我们这份是对的）。 */
   function mergeTrash(remote) {
     const list = (Array.isArray(remote) ? remote : [])
       .filter((note) => note !== null && typeof note === 'object' && typeof note.id === 'string')
       .map(normalizeNoteClient)
-    setState({ trash: list })
+    setState({ trash: list, trashTotal: list.length })
   }
 
-  async function load(quiet) {
+  /**
+   * @param {boolean} quiet 静默（轮询时不要弹错误提示）
+   * @param {boolean} withTrash 是否要回收站明细；轮询传 false，只比条数，变了再补拉一次
+   */
+  async function load(quiet, withTrash = true) {
     try {
-      const data = await rpc('/snapshot')
+      const data = await rpc('/snapshot' + (withTrash ? '' : '?trash=0'))
       mergeRemote(data.notes)
-      if (Array.isArray(data.trash)) mergeTrash(data.trash)
+      if (withTrash) {
+        mergeTrash(Array.isArray(data.trash) ? data.trash : [])
+      } else if (typeof data.trashCount === 'number' && data.trashCount !== state.trashTotal) {
+        // 回收站变了（比如模型刚删了一张）：补拉一次明细
+        load(true, true)
+      }
+      if (data.store !== null && typeof data.store === 'object') setState({ store: data.store })
       setState({ status: 'ready', error: '' })
     } catch (error) {
       setState({ status: 'error', error: String(error?.message || error) })
@@ -517,18 +569,19 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     const sentRevision = revisions.get(id) || 0
     setState({ saving: state.saving + 1 })
     try {
-      const data = await rpc('/upsert', { notes: [serialize(note)] })
+      // light：保存回包不用带整面墙（500 张时要多传 1MB），本地就是权威
+      const data = await rpc('/upsert', { notes: [serialize(note)], light: true })
       // 回包期间用户又改了这一张：保留本地改动（dirty 不清），让后面的定时保存再发一次
       if ((revisions.get(id) || 0) === sentRevision) dirty.delete(id)
-      mergeRemote(data.notes)
+      if (Array.isArray(data.notes)) mergeRemote(data.notes)
       setState({ status: 'ready', error: '', savedAt: Date.now(), saving: Math.max(0, state.saving - 1) })
     } catch (error) {
       setState({
         status: 'error',
         error: String(error?.message || error),
         saving: Math.max(0, state.saving - 1),
-        toast: { text: '保存失败：' + String(error?.message || error), kind: 'error' },
       })
+      notify('保存失败：' + String(error?.message || error), 'error')
     }
   }
 
@@ -568,6 +621,10 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
   }
 
   function createNote(anchor, canvas) {
+    if (state.notes.length >= MAX_NOTES) {
+      notify('便签墙满了（' + MAX_NOTES + ' 张），先删几张或清到回收站再加', 'error')
+      return null
+    }
     const z = maxZ() + 1
     const spot = anchor || freeSlot(canvas)
     const x = spot.x
@@ -595,6 +652,9 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     return note
   }
 
+  /** 当前墙的滚动容器：删除后把焦点收回这里，键盘用户不会「掉到页面顶部」。 */
+  let wallEl = null
+
   /** 删除 = 进回收站（软删除）。乐观更新 + toast 里给一个「撤销」。 */
   async function removeNote(id) {
     const backup = state.notes
@@ -602,6 +662,11 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     if (pending) { clearTimeout(pending); saveTimers.delete(id) }
     dirty.delete(id)
     setState({ notes: state.notes.filter((note) => note.id !== id) })
+    // 焦点原来在被删的那张上：等 DOM 提交后收回到墙面（不移动光标、不动滚动）
+    requestAnimationFrame(() => {
+      if (wallEl === null) return
+      try { wallEl.focus({ preventScroll: true }) } catch { /* 老浏览器忽略参数 */ try { wallEl.focus() } catch { /* 忽略 */ } }
+    })
     try {
       const data = await rpc('/remove', { id })
       mergeRemote(data.notes)
@@ -613,12 +678,40 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     }
   }
 
+  /**
+   * 恢复回来的纸如果正好压在别人身上（重叠超过自身面积 20%），挪到第一个空位。
+   * 位置是按百分比存的，宿主不知道像素尺寸，所以这一步只能在客户端做。
+   */
+  function settleRestored(id) {
+    requestAnimationFrame(() => {
+      const canvas = wallEl === null ? null : wallEl.querySelector('.sw-canvas')
+      if (canvas === null) return
+      const el = canvas.querySelector('[data-note-id="' + id + '"]')
+      if (el === null) return
+      const mine = el.getBoundingClientRect()
+      const area = Math.max(1, mine.width * mine.height)
+      let worst = 0
+      for (const other of canvas.querySelectorAll('.sw-note')) {
+        if (other === el) continue
+        const rect = other.getBoundingClientRect()
+        const w = Math.min(mine.right, rect.right) - Math.max(mine.left, rect.left)
+        const h = Math.min(mine.bottom, rect.bottom) - Math.max(mine.top, rect.top)
+        if (w > 0 && h > 0) worst = Math.max(worst, (w * h) / area)
+      }
+      if (worst < 0.2) return
+      const spot = freeSlot(canvas)
+      updateNote(id, { x: spot.x, y: spot.y })
+      notify('原位置被占，已挪到空格子', 'ok')
+    })
+  }
+
   async function restoreNote(id) {
     try {
       const data = await rpc('/restore', { id })
       mergeRemote(data.notes)
       if (Array.isArray(data.trash)) mergeTrash(data.trash)
       notify('已恢复一张便签', 'ok')
+      settleRestored(id)
     } catch (error) {
       notify('恢复失败：' + String(error?.message || error), 'error')
     }
@@ -664,7 +757,10 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
   }
 
   function toggleTrash() {
-    setState({ trashOpen: !state.trashOpen })
+    const open = !state.trashOpen
+    setState({ trashOpen: open })
+    // 打开抽屉时如果手里的明细和服务端条数对不上，先补一次
+    if (open && state.trashTotal !== state.trash.length) load(true, true)
   }
 
   function toggleTrashPin() {
@@ -942,8 +1038,8 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     return true
   }
 
-  /** 一行：标记（复选框 / 圆点 / 序号）+ 自动增高的输入框。 */
-  function NoteLine({ line, number, placeholder, onToggle, onChange, onKeyDown, onPaste, onFocus }) {
+  /** 一行：标记（复选框 / 圆点 / 序号）+ 自动增高的输入框。collapsed 时只读，便于选词不误改。 */
+  function NoteLine({ line, number, placeholder, collapsed, onToggle, onChange, onKeyDown, onPaste, onFocus }) {
     const ref = React.useRef(null)
 
     // 单行/折行都按整行增高，横线才不会被切半行
@@ -998,6 +1094,7 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
         value: line.text,
         placeholder,
         spellCheck: false,
+        readOnly: collapsed === true,
         'aria-label': line.kind === 'todo' ? '待办事项' : line.kind === 'ol' ? '有序列表项' : line.kind === 'ul' ? '列表项' : '便签正文',
         onChange,
         onKeyDown,
@@ -1006,8 +1103,11 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
       }))
   }
 
-  function Note({ note }) {
-    const wall = useWall()
+  /**
+   * 一张便签。刻意 **不** 订阅 store —— 只收 note + focusId 两个 prop，
+   * 外面套 memo：打字时只有正在编辑的那张重渲染，别的纸原样复用（200 张时差 4 倍）。
+   */
+  const Note = React.memo(function Note({ note, focusId }) {
     const noteRef = React.useRef(null)
     const drag = React.useRef(null)
     const resize = React.useRef(null)
@@ -1244,12 +1344,12 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
 
     // 新建后自动聚焦（focusId 是行 id）
     React.useEffect(() => {
-      const target = wall.focusId
+      const target = focusId
       if (target === null || target === undefined) return
       if (!readLines().some((line) => line.id === target)) return
       setState({ focusId: null })
       focusLine(target, 'end')
-    }, [wall.focusId, note.id])
+    }, [focusId, note.id])
 
     function onHeadPointerDown(event) {
       if (event.button !== 0) return
@@ -1478,13 +1578,19 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
           }, React.createElement(Icon, { size: 13 }, trashPath)))),
       React.createElement('div', {
         className: 'sw-body',
-        // 收起时点一下就展开（正文此时不接受输入，见 CSS 的 pointer-events）
-        onClick: collapsed ? () => updateNote(note.id, { collapsed: false }) : undefined,
+        // 收起时点一下就展开；但如果用户是在选词（selection 非空）就别抢
+        onClick: collapsed ? (event) => {
+          if (event.target !== null && event.target.closest !== undefined && event.target.closest('button, .sw-check') !== null) return
+          const selection = window.getSelection()
+          if (selection !== null && selection.toString() !== '') return
+          updateNote(note.id, { collapsed: false })
+        } : undefined,
       },
         lines.map((line, index) => React.createElement(NoteLine, {
           key: line.id,
           line,
           number: numbering[index],
+          collapsed,
           placeholder: (lines.length === 1 && index === 0) ? '写点什么…' : '',
           onToggle: () => toggleDone(line.id),
           onChange: (event) => onLineChange(line.id, event.target.value),
@@ -1492,7 +1598,13 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
           onPaste: (event) => onLinePaste(event, line.id),
           onFocus: () => { if (activeId !== line.id) setActiveId(line.id) },
         }))),
-      collapsed ? React.createElement('span', { className: 'sw-collapsedChip', 'aria-hidden': true }, '展开') : null,
+      collapsed ? React.createElement('button', {
+        type: 'button',
+        className: 'sw-collapsedChip',
+        'aria-label': '展开便签正文',
+        title: '展开（折叠时也能直接选文字）',
+        onClick: () => updateNote(note.id, { collapsed: false }),
+      }, '展开') : null,
       React.createElement('div', { className: 'sw-noteFoot' },
         React.createElement('div', { className: 'sw-swatches', role: 'group', 'aria-label': '便签纸色' },
           COLOR_KEYS.map((key) => React.createElement('button', {
@@ -1528,7 +1640,7 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
           onResizeReset()
         },
       }, React.createElement(Icon, { size: 11 }, resizePath)))
-  }
+  })
 
   // -------------------------------------------------------------------------
   // 回收站（右侧抽屉）
@@ -1578,22 +1690,14 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     const items = wall.trash
     const open = wall.trashOpen
     const pinned = wall.trashPinned
-    return React.createElement('aside', {
+    if (!open) return null
+    return React.createElement('div', {
       className: 'sw-trash',
-      'data-open': String(open),
       'data-pinned': String(pinned),
+      role: 'region',
+      'aria-label': '回收站',
     },
-      React.createElement('button', {
-        type: 'button',
-        className: 'sw-trashTab',
-        'aria-label': '回收站，' + items.length + ' 张便签',
-        'aria-expanded': String(open),
-        title: '回收站',
-        onClick: toggleTrash,
-      },
-        React.createElement(Icon, { size: 15 }, trashPath),
-        items.length > 0 ? React.createElement('span', { className: 'sw-trashCount' }, items.length > 99 ? '99+' : String(items.length)) : null),
-      open ? React.createElement('div', { className: 'sw-trashPanel', role: 'region', 'aria-label': '回收站' },
+      React.createElement('div', { className: 'sw-trashPanel' },
         React.createElement('div', { className: 'sw-trashHead' },
           React.createElement('span', { className: 'sw-trashTitle' }, '回收站'),
           React.createElement('span', { className: 'sw-trashMeta' }, items.length > 0 ? items.length + ' 张' : '空'),
@@ -1625,7 +1729,7 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
               if (wall.confirmPurge) purgeAllTrash()
               else setState({ confirmPurge: true })
             },
-          }, wall.confirmPurge ? '再点一次清空' : '清空回收站'))) : null)
+          }, wall.confirmPurge ? '再点一次清空' : '清空回收站'))))
   }
 
   // -------------------------------------------------------------------------
@@ -1635,16 +1739,36 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
   function WallPanel() {
     const wall = useWall()
     const canvasRef = React.useRef(null)
+    const wallRef = React.useRef(null)
     const searchRef = React.useRef(null)
+    const [scrollState, setScrollState] = React.useState({ scrollable: false, atTop: true, atBottom: false })
+
+    /** 量一下墙能不能滚、滚到哪了 —— 只有能滚的时候才显示「最上/最下」按钮。 */
+    function syncScroll() {
+      const el = wallRef.current
+      if (el === null) return
+      const scrollable = el.scrollHeight > el.clientHeight + 8
+      const atTop = el.scrollTop <= 4
+      const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 6
+      if (scrollable === scrollState.scrollable && atTop === scrollState.atTop && atBottom === scrollState.atBottom) return
+      setScrollState({ scrollable, atTop, atBottom })
+    }
+
+    function scrollToEdge(edge) {
+      const el = wallRef.current
+      if (el === null) return
+      el.scrollTo({ top: edge === 'top' ? 0 : el.scrollHeight, behavior: 'smooth' })
+    }
 
     // 首屏加载 + 可见时轮询（让模型用工具贴的便签也能自己出现）
+    // 轮询只要便签 + 回收站条数：回收站明细可能有几百张，没必要每 6 秒全传一遍
     React.useEffect(() => {
-      load(false)
+      load(false, true)
       const timer = setInterval(() => {
-        if (document.visibilityState === 'visible') load(true)
+        if (document.visibilityState === 'visible') load(true, false)
       }, 6000)
       const onVisibility = () => {
-        if (document.visibilityState === 'visible') load(true)
+        if (document.visibilityState === 'visible') load(true, false)
       }
       document.addEventListener('visibilitychange', onVisibility)
       return () => {
@@ -1666,6 +1790,65 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
       return () => clearTimeout(timer)
     }, [wall.confirmClear])
 
+    // 回收站的「再点一次清空」同样要自动复位 —— 否则关掉抽屉再打开，一次点击就把回收站端了
+    React.useEffect(() => {
+      if (wall.confirmPurge !== true) return
+      const timer = setTimeout(() => setState({ confirmPurge: false }), 4000)
+      return () => clearTimeout(timer)
+    }, [wall.confirmPurge])
+
+    // 抽屉一关，确认状态就作废
+    React.useEffect(() => {
+      if (wall.trashOpen !== true && wall.confirmPurge === true) setState({ confirmPurge: false })
+    }, [wall.trashOpen])
+
+    // 滚动按钮的可见性：挂载后量一次，之后跟着滚动 / 尺寸变化 / 便签数量刷新
+    React.useEffect(() => {
+      syncScroll()
+      const el = wallRef.current
+      if (el === null) return undefined
+      wallEl = el
+      let frame = 0
+      const onScroll = () => {
+        if (frame !== 0) return
+        frame = requestAnimationFrame(() => {
+          frame = 0
+          syncScroll()
+        })
+      }
+      el.addEventListener('scroll', onScroll, { passive: true })
+      const observer = new ResizeObserver(() => syncScroll())
+      observer.observe(el)
+      if (canvasRef.current !== null) observer.observe(canvasRef.current)
+      window.addEventListener('resize', syncScroll)
+      const timer = setInterval(syncScroll, 1200)
+      return () => {
+        el.removeEventListener('scroll', onScroll)
+        if (frame !== 0) cancelAnimationFrame(frame)
+        observer.disconnect()
+        window.removeEventListener('resize', syncScroll)
+        clearInterval(timer)
+        if (wallEl === el) wallEl = null
+      }
+    }, [])
+
+    React.useEffect(() => {
+      syncScroll()
+    }, [wall.notes.length, wall.trashOpen])
+
+    // 抽屉开着时 Esc 直接关掉（正在写便签时让 Esc 先给输入框）
+    React.useEffect(() => {
+      if (wall.trashOpen !== true) return undefined
+      const onKeyDown = (event) => {
+        if (event.key !== 'Escape') return
+        const active = document.activeElement
+        if (active !== null && active.tagName === 'TEXTAREA') return
+        setState({ trashOpen: false })
+      }
+      document.addEventListener('keydown', onKeyDown)
+      return () => document.removeEventListener('keydown', onKeyDown)
+    }, [wall.trashOpen])
+
     const query = wall.query.trim().toLowerCase()
     const shown = wall.notes.filter((note) => {
       if (wall.pinnedOnly && !note.pinned) return false
@@ -1676,7 +1859,7 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     function onCanvasDoubleClick(event) {
       if (event.target !== event.currentTarget) return
       const rect = event.currentTarget.getBoundingClientRect()
-      const x = round1(clamp((event.clientX - rect.left - 116) / Math.max(1, rect.width) * 100, 0, 92))
+      const x = round1(clamp((event.clientX - rect.left - NOTE_W / 2) / Math.max(1, rect.width) * 100, 0, 92))
       const y = round1(clamp((event.clientY - rect.top - 12) / Math.max(1, rect.height) * 100, 0, 88))
       createNote({ x, y })
     }
@@ -1697,7 +1880,7 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
         type: 'button',
         className: 'sw-status sw-status--error',
         title: wall.error + '\n点击重试',
-        onClick: () => { load(false); queueSaveAll() },
+        onClick: () => { load(false, true); queueSaveAll() },
       }, '未同步 · 重试')
     } else if (wall.saving > 0) {
       statusNode = React.createElement('span', { className: 'sw-status' }, '保存中…')
@@ -1707,6 +1890,24 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
 
     const empty = wall.notes.length === 0
     const noneMatched = !empty && shown.length === 0
+
+    // 提示条（最多 3 条），单独算好再塞进树里，省得嵌套太深看不清括号
+    const toastNodes = wall.toasts.map((toast) => React.createElement('div', {
+      key: toast.id,
+      className: 'sw-toast',
+      'data-kind': toast.kind,
+      role: 'status',
+    },
+      React.createElement('span', { className: 'sw-toastText' }, toast.text),
+      toast.action ? React.createElement('button', {
+        type: 'button',
+        className: 'sw-toastAction',
+        onClick: () => {
+          const action = toast.action
+          dismissToast(toast.id)
+          if (action) action.run()
+        },
+      }, toast.action.label) : null))
 
     return React.createElement('div', { className: 'sw-root', role: 'region', 'aria-label': '便签墙' },
       React.createElement('div', { className: 'sw-head' },
@@ -1739,10 +1940,11 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
         React.createElement('button', {
           type: 'button',
           className: 'sw-btn',
+          'aria-label': '只看置顶',
           'aria-pressed': String(wall.pinnedOnly),
-          title: '只看置顶便签',
+          title: '只看置顶便签（和便签抬头那个「置顶」不是一回事）',
           onClick: () => setState({ pinnedOnly: !wall.pinnedOnly }),
-        }, React.createElement(Icon, { size: 13 }, pinPath), '置顶'),
+        }, React.createElement(Icon, { size: 13 }, pinPath), '只看置顶'),
         React.createElement('button', {
           type: 'button',
           className: 'sw-btn sw-btn--primary',
@@ -1764,56 +1966,80 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
             if (wall.confirmClear) clearAll()
             else setState({ confirmClear: true })
           },
-        }, wall.confirmClear ? '再点一次清空' : '清空')),
-      React.createElement('div', { className: 'sw-wall' },
-        React.createElement('div', {
-          ref: canvasRef,
-          className: 'sw-canvas',
-          onDoubleClick: onCanvasDoubleClick,
+        }, wall.confirmClear ? '再点一次清空' : '清空'),
+        React.createElement('button', {
+          type: 'button',
+          className: 'sw-btn sw-btn--trash',
+          'aria-label': '回收站',
+          'aria-pressed': String(wall.trashOpen),
+          title: '回收站：' + wall.trash.length + ' 张（点开抽屉）',
+          onClick: toggleTrash,
         },
-          shown.map((note) => React.createElement(Note, {
-            key: note.id,
-            note,
-          })),
-          empty ? React.createElement('div', { className: 'sw-empty' },
-            React.createElement(Icon, { size: 44, viewBox: '0 0 24 24' }, React.createElement(React.Fragment, null,
-              React.createElement('path', { d: 'M5 4h11v9.5L12.5 18H5z' }),
-              React.createElement('path', { d: 'M11 18v-4.5h4.5' }),
-              React.createElement('path', { d: 'M8 8h5 M8 11h3' }))),
-            React.createElement('div', { className: 'sw-empty-title' }, '墙上还空着'),
-            React.createElement('div', { className: 'sw-empty-desc' }, '点「新建便签」贴第一张；之后双击空白处就能随手加一张，按住纸头拖到任意位置。正文里敲「- 」「1. 」直接变清单。'),
-            React.createElement('button', {
-              type: 'button',
-              className: 'sw-btn sw-btn--primary',
-              onClick: () => createNote(null, canvasRef.current),
-            }, React.createElement(Icon, { size: 13 }, plusPath), '新建便签')) : null,
-          noneMatched ? React.createElement('div', { className: 'sw-empty' },
-            React.createElement('div', { className: 'sw-empty-title' }, wall.pinnedOnly && query === '' ? '没有置顶的便签' : '没有匹配的便签'),
-            React.createElement('div', { className: 'sw-empty-desc' }, '换个关键词，或点「置顶」取消筛选。')) : null)),
-      React.createElement(TrashDrawer, null),
-      wall.trashOpen && !wall.trashPinned ? React.createElement('div', {
-        className: 'sw-trashScrim',
-        onClick: () => setState({ trashOpen: false }),
-      }) : null,
+          React.createElement(Icon, { size: 13 }, trashPath),
+          '回收站',
+          wall.trash.length > 0 ? React.createElement('span', { className: 'sw-badge', 'aria-hidden': true }, wall.trash.length > 99 ? '99+' : String(wall.trash.length)) : null)),
+      React.createElement('div', { className: 'sw-main' },
+        React.createElement('div', { className: 'sw-wall', ref: wallRef, tabIndex: -1 },
+          React.createElement('div', {
+            ref: canvasRef,
+            className: 'sw-canvas',
+            onDoubleClick: onCanvasDoubleClick,
+          },
+            shown.map((note) => React.createElement(Note, {
+              key: note.id,
+              note,
+              focusId: wall.focusId,
+            })),
+            empty ? React.createElement('div', { className: 'sw-empty' },
+              React.createElement(Icon, { size: 44, viewBox: '0 0 24 24' }, React.createElement(React.Fragment, null,
+                React.createElement('path', { d: 'M5 4h11v9.5L12.5 18H5z' }),
+                React.createElement('path', { d: 'M11 18v-4.5h4.5' }),
+                React.createElement('path', { d: 'M8 8h5 M8 11h3' }))),
+              React.createElement('div', { className: 'sw-empty-title' }, '墙上还空着'),
+              React.createElement('div', { className: 'sw-empty-desc' }, '点「新建便签」贴第一张；之后双击空白处就能随手加一张，按住纸头拖到任意位置。正文里敲「- 」「1. 」直接变清单。'),
+              React.createElement('button', {
+                type: 'button',
+                className: 'sw-btn sw-btn--primary',
+                onClick: () => createNote(null, canvasRef.current),
+              }, React.createElement(Icon, { size: 13 }, plusPath), '新建便签')) : null,
+            noneMatched ? React.createElement('div', { className: 'sw-empty' },
+              React.createElement('div', { className: 'sw-empty-title' }, wall.pinnedOnly && query === '' ? '没有置顶的便签' : '没有匹配的便签'),
+              React.createElement('div', { className: 'sw-empty-desc' }, '换个关键词，或点「置顶」取消筛选。')) : null)),
+        // 只有墙真的能滚时才出现：一键到最上 / 最下
+        React.createElement('div', { className: 'sw-scroll', 'data-visible': String(scrollState.scrollable) },
+          React.createElement('button', {
+            type: 'button',
+            className: 'sw-scrollBtn',
+            'aria-label': '滚到最上',
+            title: '滚到最上',
+            disabled: scrollState.atTop,
+            onClick: () => scrollToEdge('top'),
+          }, React.createElement(Icon, { size: 13 }, expandPath)),
+          React.createElement('button', {
+            type: 'button',
+            className: 'sw-scrollBtn',
+            'aria-label': '滚到最下',
+            title: '滚到最下',
+            disabled: scrollState.atBottom,
+            onClick: () => scrollToEdge('bottom'),
+          }, React.createElement(Icon, { size: 13 }, collapsePath))),
+        React.createElement(TrashDrawer, null),
+        wall.trashOpen && !wall.trashPinned ? React.createElement('div', {
+          className: 'sw-trashScrim',
+          onClick: () => setState({ trashOpen: false }),
+        }) : null),
       React.createElement('div', { className: 'sw-foot' },
         React.createElement('span', { className: 'sw-foot-tip' }, '回车换行 · 「- 」「1. 」变清单 · 悬停纸条切换格式与纸色'),
         React.createElement('div', { className: 'sw-spacer' }),
-        statusNode),
-      wall.toast === null ? null : React.createElement('div', {
-        className: 'sw-toast',
-        'data-kind': wall.toast.kind,
-        role: 'status',
-      },
-        React.createElement('span', { className: 'sw-toastText' }, wall.toast.text),
-        wall.toast.action === null || wall.toast.action === undefined ? null : React.createElement('button', {
+        wall.store === null || typeof wall.store.path !== 'string' ? null : React.createElement('button', {
           type: 'button',
-          className: 'sw-toastAction',
-          onClick: () => {
-            const action = wall.toast.action
-            setState({ toast: null })
-            if (action !== null && action !== undefined) action.run()
-          },
-        }, wall.toast.action.label)))
+          className: 'sw-path',
+          'data-configured': String(Boolean(wall.store.configured)),
+          title: '便签数据存在这里：\n' + wall.store.path + '\n（可在插件配置 storePath 里改）\n点一下复制路径',
+          onClick: () => copyStorePath(wall.store.path),
+        }, shortPath(wall.store.path)),
+        statusNode),
+      toastNodes.length === 0 ? null : React.createElement('div', { className: 'sw-toasts' }, toastNodes))
   }
 
   // -------------------------------------------------------------------------

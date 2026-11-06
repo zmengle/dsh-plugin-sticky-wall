@@ -2,18 +2,18 @@
  * dsh-plugin-sticky-wall — 便签墙 · Host 半侧
  *
  * 职责只有三件事：
- *   1. 存：便签数组持久化到 `$DSH_HOME/sticky-wall.json`（默认 `~/.dsh/sticky-wall.json`），
- *      原子写（tmp + rename），进程内只有一份内存状态。
+ *   1. 存：便签数组持久化到 `$DSH_HOME/sticky-wall.json`（默认 `~/.dsh/sticky-wall.json`，
+ *      可用插件配置 `storePath` 改成别的路径），原子写（tmp + rename），进程内只有一份内存状态。
  *   2. 通道：在 webServer 上挂 `/api/dsh-sticky-wall/*` 同源 JSON 端点，给 Client 半侧读写。
- *   3. 工具：注册 4 个模型工具 `sticky_wall_*`，让「把这条记到便签墙」直接落到墙上。
+ *   3. 工具：注册 5 个模型工具 `sticky_wall_*`，让「把这条记到便签墙」直接落到墙上。
  *
  * 说明：这里刻意不 import `@deepseek-ai/*`，只用 Node 内置模块 —— 插件装在 profile 里时
  * 宿主解析第三方包的 ESM 钩子不保证可用，零依赖最稳。
  */
 
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, isAbsolute, join } from 'node:path'
 
 /** Cordis 插件名 —— 与 package.json 的 name、cordis.patch.yml 的行 name 保持一致。 */
 export const name = 'dsh-plugin-sticky-wall'
@@ -31,8 +31,8 @@ const MAX_BODY_BYTES = 256 * 1024
 const MAX_NOTES = 500
 const MAX_TEXT = 4000
 
-/** 回收站：最多留 100 张，超过 30 天自动清掉（默认折叠的抽屉里不该无限堆东西）。 */
-const MAX_TRASH = 100
+/** 回收站：与墙面同量级（500），只在删除时按条数挤出最旧的，读盘时绝不再裁。超过 30 天自动清掉。 */
+const MAX_TRASH = 500
 const TRASH_DAYS = 30
 const TRASH_TTL_MS = TRASH_DAYS * 24 * 60 * 60 * 1000
 
@@ -219,14 +219,41 @@ function seedNotes() {
   ]
 }
 
+/**
+ * 把插件配置里的 `storePath` 解析成绝对路径。
+ * 支持：绝对路径 / `~/...` / 相对 `$DSH_HOME` 的路径；空值回落到默认的 `sticky-wall.json`。
+ */
+function resolveStorePath(raw, home, fallback) {
+  if (typeof raw !== 'string' || raw.trim() === '') return fallback
+  let value = raw.trim()
+  if (value === '~' || value.startsWith('~/') || value.startsWith('~\\')) {
+    value = join(homedir(), value.slice(1).replace(/^[\\/]+/, ''))
+  }
+  if (!isAbsolute(value)) value = join(home, value)
+  return value
+}
+
 // ---------------------------------------------------------------------------
 // 插件主体
 // ---------------------------------------------------------------------------
 
-export function apply(ctx) {
-  // ---- 存储路径 ----
+export function apply(ctx, config) {
+  // ---- 存储路径（插件配置 storePath 可覆盖；默认 $DSH_HOME/sticky-wall.json）----
+  const cfg = config !== null && typeof config === 'object' ? config : {}
   const home = String(process.env.DSH_HOME || '').trim() || join(homedir(), '.dsh')
-  const storePath = join(home, 'sticky-wall.json')
+  const defaultStorePath = join(home, 'sticky-wall.json')
+  const storePath = resolveStorePath(cfg.storePath, home, defaultStorePath)
+
+  // 换过路径时，别让老数据凭空消失：新路径还没有文件、而默认文件在，就先搬一份过去
+  if (storePath !== defaultStorePath && !existsSync(storePath) && existsSync(defaultStorePath)) {
+    try {
+      mkdirSync(dirname(storePath), { recursive: true })
+      copyFileSync(defaultStorePath, storePath)
+      console.log(`[dsh-plugin-sticky-wall] 已把默认数据迁移到 ${storePath}`)
+    } catch (error) {
+      console.error('[dsh-plugin-sticky-wall] 迁移旧数据失败：', error?.message || String(error))
+    }
+  }
 
   /** @type {Array<object>} */
   let notes = []
@@ -235,7 +262,11 @@ export function apply(ctx) {
     try {
       const raw = JSON.parse(readFileSync(storePath, 'utf8'))
       const list = Array.isArray(raw?.notes) ? raw.notes : []
-      notes = list.slice(0, MAX_NOTES).map((item) => {
+      // 读盘不截断：截断 = 静默丢数据（写入侧已经限流，这里只做提示，绝不删东西）
+      if (list.length > MAX_NOTES + MAX_TRASH) {
+        console.warn(`[dsh-plugin-sticky-wall] ${storePath} 里有 ${list.length} 条（上限 ${MAX_NOTES} + 回收站 ${MAX_TRASH}），已全部载入；新增会被拒绝，建议清理回收站`)
+      }
+      notes = list.map((item) => {
         const n = normalizeNote(item, undefined)
         // 读盘不该刷新 updatedAt：沿用文件里的值，否则每次重启顺序全变
         return {
@@ -244,16 +275,11 @@ export function apply(ctx) {
           updatedAt: clampNumber(item?.updatedAt, 0, 8.64e15, n.updatedAt),
         }
       })
-      // 回收站不能无限长：先按保留期清一遍，再按条数封顶（只砍掉最旧的）
+      // 回收站：只按保留期清（超过 30 天），不再按条数裁剪 —— 条数在删除时就管住了
       const expired = notes.filter((n) => n.trashed && nowMs() - (n.deletedAt || 0) > TRASH_TTL_MS)
       if (expired.length > 0) {
         notes = notes.filter((n) => !expired.includes(n))
         console.log(`[dsh-plugin-sticky-wall] 清理 ${expired.length} 张超过 ${TRASH_DAYS} 天的回收站便签`)
-      }
-      const trashed = notes.filter((n) => n.trashed).sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0))
-      if (trashed.length > MAX_TRASH) {
-        const drop = new Set(trashed.slice(MAX_TRASH).map((n) => n.id))
-        notes = notes.filter((n) => !drop.has(n.id))
       }
       return true
     } catch (error) {
@@ -265,10 +291,14 @@ export function apply(ctx) {
   }
 
   let writeChain = Promise.resolve()
+  /** 上一次落盘的内容：一模一样就不写（省一次 1MB 的 tmp+rename）。 */
+  let lastPersisted = ''
 
   /** 原子持久化：写 tmp → rename，写失败只记日志不抛（UI 仍可继续用）。 */
   function persist() {
     const payload = JSON.stringify({ version: 1, notes }, null, 2)
+    if (payload === lastPersisted) return writeChain
+    lastPersisted = payload
     const tmp = `${storePath}.${process.pid}.tmp`
     writeChain = writeChain
       .then(() => {
@@ -278,6 +308,8 @@ export function apply(ctx) {
       })
       .catch((error) => {
         try { rmSync(tmp, { force: true }) } catch { /* 清理失败无所谓 */ }
+        // 写失败就把「已落盘内容」作废，下次同样的内容还要再写一次
+        lastPersisted = ''
         console.error('[dsh-plugin-sticky-wall] 持久化失败：', error?.message || String(error))
       })
     return writeChain
@@ -296,11 +328,14 @@ export function apply(ctx) {
 
   /**
    * 批量 upsert：同 id 更新，缺 id 新建。
-   * @returns {{ saved: Array<object>, skipped: number }}
+   * 上限只数「墙上的」（回收站里的不该占墙面名额）。
+   * @returns {{ saved: Array<object>, skipped: number, full: boolean }}
    */
   function upsertMany(inputs) {
     const saved = []
     let skipped = 0
+    let full = false
+    const wallCount = () => notes.filter((n) => !n.trashed).length
     for (const input of Array.isArray(inputs) ? inputs : []) {
       if (input === null || typeof input !== 'object') { skipped += 1; continue }
       const id = typeof input.id === 'string' ? input.id : ''
@@ -310,7 +345,7 @@ export function apply(ctx) {
         const hasText = typeof input.text === 'string' && input.text.trim() !== ''
         // 既没有 id 也没有正文的空壳请求直接丢弃，别在墙上留空白纸
         if (id === '' && !hasText) { skipped += 1; continue }
-        if (notes.length >= MAX_NOTES) { skipped += 1; continue }
+        if (wallCount() >= MAX_NOTES) { skipped += 1; full = true; continue }
         notes.push(note)
       } else {
         Object.assign(existing, note)
@@ -318,7 +353,17 @@ export function apply(ctx) {
       saved.push(note)
     }
     if (saved.length > 0) persist()
-    return { saved, skipped }
+    return { saved, skipped, full }
+  }
+
+  /** 回收站超量时挤掉最旧的几张（只在删除动作里调用，并打日志，让「丢」可追溯）。 */
+  function trimTrash() {
+    const trashed = notes.filter((n) => n.trashed).sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0))
+    if (trashed.length <= MAX_TRASH) return 0
+    const drop = new Set(trashed.slice(MAX_TRASH).map((n) => n.id))
+    notes = notes.filter((n) => !drop.has(n.id))
+    console.log(`[dsh-plugin-sticky-wall] 回收站已满 ${MAX_TRASH} 张，挤掉最旧的 ${drop.size} 张`)
+    return drop.size
   }
 
   function removeNote(id) {
@@ -327,6 +372,7 @@ export function apply(ctx) {
     if (note === undefined) return null
     note.trashed = true
     note.deletedAt = nowMs()
+    trimTrash()
     persist()
     return note
   }
@@ -367,7 +413,10 @@ export function apply(ctx) {
       note.deletedAt = now
       count += 1
     }
-    if (count > 0) persist()
+    if (count > 0) {
+      trimTrash()
+      persist()
+    }
     return count
   }
 
@@ -375,8 +424,20 @@ export function apply(ctx) {
   const trashNotes = () => [...notes].filter((n) => n.trashed).sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0))
   const sorted = () => wallNotes().sort((a, b) => (a.z - b.z) || (a.updatedAt - b.updatedAt))
 
-  /** 给 HTTP / 客户端的一致快照：墙上的 + 回收站的。 */
-  const snapshotBody = () => ({ notes: sorted(), trash: trashNotes(), colors: COLORS })
+  /**
+   * 给 HTTP / 客户端的一致快照：墙上的 + 回收站的 + 存储位置。
+   * `withTrash=false` 时只给条数（轮询用）——回收站可能有几百张，没必要每 6 秒全传一遍。
+   */
+  const snapshotBody = (withTrash = true) => {
+    const trash = trashNotes()
+    return {
+      notes: sorted(),
+      trash: withTrash ? trash : [],
+      trashCount: trash.length,
+      colors: COLORS,
+      store: { path: storePath, defaultPath: defaultStorePath, configured: storePath !== defaultStorePath },
+    }
+  }
 
   // ---- HTTP 端点（Client 半侧同源 fetch） ----
 
@@ -403,15 +464,45 @@ export function apply(ctx) {
     res.end(payload)
   }
 
+  /**
+   * 同源校验：挡住「本机其它页面」用简单请求（text/plain，不触发预检）偷偷改便签。
+   * 浏览器发的请求会带 Sec-Fetch-Site / Origin；非浏览器（脚本、探针）两者都没有，放行。
+   * @returns {string} 空串=放行，否则是拒绝原因
+   */
+  function rejectReason(req) {
+    const site = String(req.headers['sec-fetch-site'] || '')
+    if (site === 'cross-site' || site === 'same-site') return '拒绝跨站请求'
+    const origin = String(req.headers.origin || '')
+    if (origin !== '' && origin !== 'null') {
+      let host = ''
+      try { host = new URL(origin).host } catch { return '来源不合法' }
+      if (host !== String(req.headers.host || '')) return '拒绝跨站请求'
+    }
+    return ''
+  }
+
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
     path: API_PREFIX,
     handler: async (req, res) => {
-      const route = (req.url || '').split('?')[0]
+      const url = req.url || ''
+      const route = url.split('?')[0]
       const action = route.startsWith(API_PREFIX) ? route.slice(API_PREFIX.length) : route
+      // ?trash=0 表示「只给回收站条数，不要明细」（客户端轮询用）
+      let withTrash = true
+      const queryStart = url.indexOf('?')
+      if (queryStart !== -1) {
+        const params = new URLSearchParams(url.slice(queryStart + 1))
+        if (params.get('trash') === '0') withTrash = false
+      }
       try {
+        const denied = rejectReason(req)
+        if (denied !== '') {
+          sendJson(res, 403, { ok: false, error: denied })
+          return
+        }
         if (req.method === 'GET' && (action === '/snapshot' || action === '/')) {
-          sendJson(res, 200, Object.assign({ ok: true }, snapshotBody()))
+          sendJson(res, 200, Object.assign({ ok: true }, snapshotBody(withTrash)))
           return
         }
         if (req.method !== 'POST') {
@@ -419,11 +510,17 @@ export function apply(ctx) {
           res.end('method not allowed')
           return
         }
+        // 只收 JSON：跨站的简单请求只能用 text/plain / 表单，这一条直接把它们挡在门外
+        const contentType = String(req.headers['content-type'] || '').toLowerCase()
+        if (!contentType.startsWith('application/json')) {
+          sendJson(res, 415, { ok: false, error: '只接受 application/json' })
+          return
+        }
 
         const body = await readJson(req)
 
         if (action === '/snapshot') {
-          sendJson(res, 200, Object.assign({ ok: true }, snapshotBody()))
+          sendJson(res, 200, Object.assign({ ok: true }, snapshotBody(withTrash)))
           return
         }
 
@@ -434,7 +531,13 @@ export function apply(ctx) {
             return
           }
           const result = upsertMany(inputs)
-          sendJson(res, 200, Object.assign({ ok: true, saved: result.saved.map((n) => n.id), skipped: result.skipped }, snapshotBody()))
+          const head = { ok: true, saved: result.saved.map((n) => n.id), skipped: result.skipped, full: result.full }
+          // light：保存回包不带整面墙（客户端每次都传它，500 张时这会多传约 1MB）
+          if (body?.light === true) {
+            sendJson(res, 200, Object.assign(head, { savedAt: Date.now() }))
+            return
+          }
+          sendJson(res, 200, Object.assign(head, snapshotBody()))
           return
         }
 
@@ -584,8 +687,13 @@ export function apply(ctx) {
         const trimmed = String(text ?? '').trim()
         if (trimmed === '') throw new Error('便签正文不能为空')
         const maxZ = notes.reduce((max, n) => Math.max(max, n.z), 0) + 1
-        const { saved } = upsertMany([{ text: trimmed, color, pinned, z: maxZ }])
+        const { saved, full } = upsertMany([{ text: trimmed, color, pinned, z: maxZ }])
         const note = saved[0]
+        if (note === undefined) {
+          throw new Error(full
+            ? `便签墙已满（${MAX_NOTES} 张），先让用户删几张、或清空到回收站再加`
+            : '便签没贴上（请求被丢弃），检查 text 是否为空')
+        }
         return `已贴到便签墙：[${note.id}] ${COLOR_LABEL[note.color]}${note.pinned ? ' · 置顶' : ''}\n${oneLine(note.text, 120)}`
       },
     }),
