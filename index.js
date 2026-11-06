@@ -31,6 +31,13 @@ const MAX_BODY_BYTES = 256 * 1024
 const MAX_NOTES = 500
 const MAX_TEXT = 4000
 
+/** 回收站：最多留 100 张，超过 30 天自动清掉（默认折叠的抽屉里不该无限堆东西）。 */
+const MAX_TRASH = 100
+const TRASH_DAYS = 30
+const TRASH_TTL_MS = TRASH_DAYS * 24 * 60 * 60 * 1000
+
+const nowMs = () => Date.now()
+
 /** 便签尺寸：宽度（px）与「最少几行高」，两端都要夹。 */
 const DEFAULT_W = 252
 const MIN_W = 196
@@ -141,10 +148,30 @@ function normalizeLine(raw) {
 // ---------------------------------------------------------------------------
 
 /**
+ * 便签已知字段：其余字段原样保留（向前兼容 —— 以后客户端只加字段就不用改宿主）。
+ * 危险键（原型链）必须挡掉，否则 HTTP 里塞个 __proto__ 就能污染对象。
+ */
+const NOTE_FIELDS = new Set([
+  'id', 'lines', 'text', 'ruled', 'w', 'minLines', 'color', 'x', 'y', 'pinned', 'z',
+  'collapsed', 'trashed', 'deletedAt', 'createdAt', 'updatedAt',
+])
+
+/** 取走未知字段（跳过原型链危险键）。 */
+function extraFields(src) {
+  const extra = {}
+  for (const key of Object.keys(src)) {
+    if (NOTE_FIELDS.has(key)) continue
+    if (key === '__proto__' || key === 'constructor' || key === 'prototype') continue
+    extra[key] = src[key]
+  }
+  return extra
+}
+
+/**
  * 把外部（HTTP / 工具）传来的字段收敛成一条合法便签。
  * 行是权威数据；只给了 text 就按 Markdown 前缀拆成行，保证老数据与工具写入都能用。
  * @param {unknown} raw 原始输入
- * @param {object|undefined} prev 已存在的同 id 便签（更新时提供，保留 createdAt）
+ * @param {object|undefined} prev 已存在的同 id 便签（更新时提供，保留 createdAt / 回收站状态）
  */
 function normalizeNote(raw, prev) {
   const src = raw !== null && typeof raw === 'object' ? raw : {}
@@ -154,11 +181,12 @@ function normalizeNote(raw, prev) {
     : (typeof src.text === 'string'
         ? linesFromText(src.text.slice(0, MAX_TEXT))
         : (prev?.lines ?? linesFromText(prev?.text ?? '')))
-  return {
+  return Object.assign(extraFields(src), {
     id: typeof src.id === 'string' && src.id !== '' ? src.id.slice(0, 60) : (prev?.id ?? newId()),
     lines: sourceLines,
     text: textFromLines(sourceLines).slice(0, MAX_TEXT),
     ruled: typeof src.ruled === 'boolean' ? src.ruled : (prev?.ruled ?? true),
+    collapsed: typeof src.collapsed === 'boolean' ? src.collapsed : (prev?.collapsed ?? false),
     w: Math.round(clampNumber(src.w, MIN_W, MAX_W, prev?.w ?? DEFAULT_W)),
     minLines: Math.round(clampNumber(src.minLines, MIN_LINES, MAX_LINES_H, prev?.minLines ?? DEFAULT_MIN_LINES)),
     color: COLORS.includes(src.color) ? src.color : (prev?.color ?? DEFAULT_COLOR),
@@ -166,9 +194,12 @@ function normalizeNote(raw, prev) {
     y: clampNumber(src.y, 0, 88, prev?.y ?? 8),
     pinned: typeof src.pinned === 'boolean' ? src.pinned : (prev?.pinned ?? false),
     z: clampNumber(src.z, 1, 1e9, prev?.z ?? now),
+    // 回收站：删除只是打标记，restore 清掉；purge 才真的从数组里拿掉
+    trashed: typeof src.trashed === 'boolean' ? src.trashed : (prev?.trashed ?? false),
+    deletedAt: typeof src.deletedAt === 'number' ? src.deletedAt : (prev?.deletedAt ?? null),
     createdAt: prev?.createdAt ?? now,
     updatedAt: now,
-  }
+  })
 }
 
 /** 首次安装的欢迎便签（只在意文件不存在时写入，不覆盖用户数据）。 */
@@ -213,6 +244,17 @@ export function apply(ctx) {
           updatedAt: clampNumber(item?.updatedAt, 0, 8.64e15, n.updatedAt),
         }
       })
+      // 回收站不能无限长：先按保留期清一遍，再按条数封顶（只砍掉最旧的）
+      const expired = notes.filter((n) => n.trashed && nowMs() - (n.deletedAt || 0) > TRASH_TTL_MS)
+      if (expired.length > 0) {
+        notes = notes.filter((n) => !expired.includes(n))
+        console.log(`[dsh-plugin-sticky-wall] 清理 ${expired.length} 张超过 ${TRASH_DAYS} 天的回收站便签`)
+      }
+      const trashed = notes.filter((n) => n.trashed).sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0))
+      if (trashed.length > MAX_TRASH) {
+        const drop = new Set(trashed.slice(MAX_TRASH).map((n) => n.id))
+        notes = notes.filter((n) => !drop.has(n.id))
+      }
       return true
     } catch (error) {
       if (error?.code !== 'ENOENT') {
@@ -280,21 +322,61 @@ export function apply(ctx) {
   }
 
   function removeNote(id) {
-    const index = notes.findIndex((n) => n.id === id)
+    // 删除 = 打进回收站（软删除），恢复或清空回收站才真的没了
+    const note = notes.find((n) => n.id === id && !n.trashed)
+    if (note === undefined) return null
+    note.trashed = true
+    note.deletedAt = nowMs()
+    persist()
+    return note
+  }
+
+  function restoreNote(id) {
+    const note = notes.find((n) => n.id === id && n.trashed)
+    if (note === undefined) return null
+    note.trashed = false
+    note.deletedAt = null
+    // 回到墙面时放到最上层，免得被别的纸压住看不见
+    note.z = notes.reduce((max, n) => Math.max(max, n.z || 0), 0) + 1
+    persist()
+    return note
+  }
+
+  function purgeNote(id) {
+    const index = notes.findIndex((n) => n.id === id && n.trashed)
     if (index === -1) return false
     notes.splice(index, 1)
     persist()
     return true
   }
 
-  function clearNotes() {
-    const count = notes.length
-    notes = []
+  function purgeAllTrash() {
+    const count = notes.filter((n) => n.trashed).length
+    notes = notes.filter((n) => !n.trashed)
     persist()
     return count
   }
 
-  const sorted = () => [...notes].sort((a, b) => (a.z - b.z) || (a.updatedAt - b.updatedAt))
+  /** 清空墙面：也是打进回收站，不是直接烧掉。 */
+  function clearWall() {
+    const now = nowMs()
+    let count = 0
+    for (const note of notes) {
+      if (note.trashed) continue
+      note.trashed = true
+      note.deletedAt = now
+      count += 1
+    }
+    if (count > 0) persist()
+    return count
+  }
+
+  const wallNotes = () => [...notes].filter((n) => !n.trashed)
+  const trashNotes = () => [...notes].filter((n) => n.trashed).sort((a, b) => (b.deletedAt || 0) - (a.deletedAt || 0))
+  const sorted = () => wallNotes().sort((a, b) => (a.z - b.z) || (a.updatedAt - b.updatedAt))
+
+  /** 给 HTTP / 客户端的一致快照：墙上的 + 回收站的。 */
+  const snapshotBody = () => ({ notes: sorted(), trash: trashNotes(), colors: COLORS })
 
   // ---- HTTP 端点（Client 半侧同源 fetch） ----
 
@@ -329,7 +411,7 @@ export function apply(ctx) {
       const action = route.startsWith(API_PREFIX) ? route.slice(API_PREFIX.length) : route
       try {
         if (req.method === 'GET' && (action === '/snapshot' || action === '/')) {
-          sendJson(res, 200, { ok: true, notes: sorted(), colors: COLORS })
+          sendJson(res, 200, Object.assign({ ok: true }, snapshotBody()))
           return
         }
         if (req.method !== 'POST') {
@@ -341,7 +423,7 @@ export function apply(ctx) {
         const body = await readJson(req)
 
         if (action === '/snapshot') {
-          sendJson(res, 200, { ok: true, notes: sorted(), colors: COLORS })
+          sendJson(res, 200, Object.assign({ ok: true }, snapshotBody()))
           return
         }
 
@@ -352,21 +434,43 @@ export function apply(ctx) {
             return
           }
           const result = upsertMany(inputs)
-          sendJson(res, 200, { ok: true, notes: sorted(), saved: result.saved.map((n) => n.id), skipped: result.skipped })
+          sendJson(res, 200, Object.assign({ ok: true, saved: result.saved.map((n) => n.id), skipped: result.skipped }, snapshotBody()))
           return
         }
 
         if (action === '/remove') {
-          const ok = removeNote(typeof body?.id === 'string' ? body.id : '')
+          const note = removeNote(typeof body?.id === 'string' ? body.id : '')
+          sendJson(res, note === null ? 404 : 200, note === null
+            ? { ok: false, error: '未找到该便签' }
+            : Object.assign({ ok: true, trashed: note.id }, snapshotBody()))
+          return
+        }
+
+        if (action === '/restore') {
+          const note = restoreNote(typeof body?.id === 'string' ? body.id : '')
+          sendJson(res, note === null ? 404 : 200, note === null
+            ? { ok: false, error: '回收站里没有这张便签' }
+            : Object.assign({ ok: true, restored: note.id }, snapshotBody()))
+          return
+        }
+
+        if (action === '/purge') {
+          const ok = purgeNote(typeof body?.id === 'string' ? body.id : '')
           sendJson(res, ok ? 200 : 404, ok
-            ? { ok: true, notes: sorted() }
-            : { ok: false, error: '未找到该便签' })
+            ? Object.assign({ ok: true }, snapshotBody())
+            : { ok: false, error: '回收站里没有这张便签' })
+          return
+        }
+
+        if (action === '/purge-all') {
+          const removed = purgeAllTrash()
+          sendJson(res, 200, Object.assign({ ok: true, removed }, snapshotBody()))
           return
         }
 
         if (action === '/clear') {
-          const count = clearNotes()
-          sendJson(res, 200, { ok: true, removed: count, notes: [] })
+          const count = clearWall()
+          sendJson(res, 200, Object.assign({ ok: true, removed: count }, snapshotBody()))
           return
         }
 
@@ -503,6 +607,7 @@ export function apply(ctx) {
       run: ({ id, text, color, pinned }) => {
         const existing = notes.find((n) => n.id === id)
         if (existing === undefined) throw new Error(`未找到便签 ${id}（先用 sticky_wall_list 看看有哪些 id）`)
+        if (existing.trashed === true) throw new Error(`便签 ${id} 在回收站里，先 sticky_wall_restore 再改`)
         const patch = { id }
         if (typeof text === 'string') patch.text = text
         if (typeof color === 'string') patch.color = color
@@ -514,16 +619,28 @@ export function apply(ctx) {
     }),
     defineTool({
       name: 'sticky_wall_remove',
-      description: '从便签墙上删除一条便签（不可撤销）。',
-      presentCall: (args) => ({ card: 'generic', title: `撕掉便签：${args?.id ?? ''}`, kind: 'delete', rawInput: args }),
+      description: '把便签从墙上拿掉：会移动「回收站」而不是直接销毁，之后可以用 sticky_wall_restore 恢复。',
+      presentCall: (args) => ({ card: 'generic', title: `收起便签：${args?.id ?? ''}`, kind: 'delete', rawInput: args }),
       parameters: {
         id: { type: 'string', required: true, description: '便签 id' },
       },
       run: ({ id }) => {
-        const note = notes.find((n) => n.id === id)
-        if (note === undefined) throw new Error(`未找到便签 ${id}`)
-        removeNote(id)
-        return `已撕掉便签 [${id}]：${oneLine(note.text, 80)}`
+        const note = removeNote(id)
+        if (note === null) throw new Error(`未找到便签 ${id}（它可能已经在回收站里）`)
+        return `已移到回收站 [${id}]：${oneLine(note.text, 80)}\n（要恢复的话用 sticky_wall_restore，或让用户在右侧抽屉里点「恢复」）`
+      },
+    }),
+    defineTool({
+      name: 'sticky_wall_restore',
+      description: '把回收站里的一张便签恢复回墙上（恢复后在最上层）。',
+      presentCall: (args) => ({ card: 'generic', title: `恢复便签：${args?.id ?? ''}`, kind: 'edit', rawInput: args }),
+      parameters: {
+        id: { type: 'string', required: true, description: '便签 id' },
+      },
+      run: ({ id }) => {
+        const note = restoreNote(id)
+        if (note === null) throw new Error(`回收站里没有 ${id}（可能已经被彻底删掉了）`)
+        return `已恢复便签 [${id}]：${oneLine(note.text, 80)}`
       },
     }),
   ]

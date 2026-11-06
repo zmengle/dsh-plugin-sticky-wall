@@ -244,6 +244,39 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
 .sw-resize:focus-visible{opacity:1;outline:2px solid currentColor;outline-offset:-2px}
 /* 窄便签：先收起调色盘，把位置让给行格式按钮（默认宽度 252 时仍显示） */
 @container (max-width: 240px){.sw-swatches{display:none}.sw-footSep{display:none}}
+/* 折叠：正文只留两行 + 底部渐隐，点一下整张展开；底部菜单此时让位 */
+.sw-note[data-collapsed="true"] .sw-body{min-height:0;max-height:calc(var(--sw-lh) * 2 + var(--sw-pad-top) + var(--sw-pad-bottom));overflow:hidden;cursor:pointer;-webkit-mask-image:linear-gradient(to bottom,#000 56%,rgba(0,0,0,.1));mask-image:linear-gradient(to bottom,#000 56%,rgba(0,0,0,.1))}
+.sw-note[data-collapsed="true"] .sw-lineText{pointer-events:none}
+.sw-note[data-collapsed="true"] .sw-noteFoot{display:none}
+.sw-collapsedChip{position:absolute;right:9px;bottom:5px;font-size:10px;letter-spacing:.04em;line-height:1.5;padding:1px 7px;border-radius:999px;background:color-mix(in srgb,currentColor 12%,transparent);opacity:.75;pointer-events:none}
+/* 回收站：右侧常驻窄标签，点开是抽屉；面板可固定。抽屉只占工具栏以下，上方按钮还能点 */
+.sw-trash{position:absolute;top:54px;right:0;bottom:34px;z-index:6000;display:flex;align-items:center;justify-content:flex-end;pointer-events:none}
+.sw-trash[data-open="true"]{align-items:stretch}
+.sw-trashTab{pointer-events:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;width:34px;height:78px;margin-right:7px;padding:8px 0;border:1px solid var(--dsw-alias-border-l2);border-radius:10px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);cursor:pointer;box-shadow:0 4px 10px rgba(0,0,0,.10);transition:color .15s,border-color .15s}
+.sw-trashTab:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l3)}
+.sw-trash[data-open="true"] .sw-trashTab{display:none}
+.sw-trashCount{font-size:10px;font-weight:600;font-variant-numeric:tabular-nums;min-width:16px;height:16px;line-height:16px;text-align:center;border-radius:999px;background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 14%,transparent);color:var(--dsw-alias-state-error-primary)}
+.sw-trashScrim{position:absolute;inset:0;z-index:5500;background:transparent}
+.sw-trashPanel{pointer-events:auto;width:292px;margin:10px 10px 10px 0;display:flex;flex-direction:column;border-radius:12px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);box-shadow:0 18px 40px -14px rgba(0,0,0,.4);overflow:hidden;animation:sw-trash-in .16s ease-out}
+@keyframes sw-trash-in{from{transform:translateX(14px);opacity:.35}to{transform:none;opacity:1}}
+.sw-trashHead{flex:none;display:flex;align-items:center;gap:8px;padding:9px 8px 8px 14px;border-bottom:1px solid var(--dsw-alias-border-l1)}
+.sw-trashTitle{font-size:13px;font-weight:600;letter-spacing:.02em}
+.sw-trashMeta{font-size:11px;color:var(--dsw-alias-label-secondary);font-variant-numeric:tabular-nums}
+.sw-trashList{flex:1 1 auto;min-height:0;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:6px}
+.sw-trashEmpty{padding:24px 16px;font-size:12px;line-height:1.75;color:var(--dsw-alias-label-secondary);white-space:pre-wrap}
+.sw-trashItem{display:flex;align-items:stretch;gap:8px;padding:8px;border-radius:9px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-base)}
+.sw-trashSwatch{flex:none;width:7px;border-radius:3px}
+.sw-trashMain{flex:1 1 auto;min-width:0}
+.sw-trashText{font-size:12px;line-height:1.5;color:var(--dsw-alias-label-primary);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word}
+.sw-trashWhen{font-size:10px;color:var(--dsw-alias-label-secondary);margin-top:3px;font-variant-numeric:tabular-nums}
+.sw-trashActions{display:flex;flex-direction:column;justify-content:center;gap:4px}
+.sw-miniBtn{height:22px;padding:0 8px;font-size:11px;font-family:inherit;border-radius:6px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);cursor:pointer;white-space:nowrap}
+.sw-miniBtn:hover{border-color:var(--dsw-alias-border-l3);background:var(--dsw-alias-bg-layer-2)}
+.sw-miniBtn:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
+.sw-miniBtn--danger{color:var(--dsw-alias-state-error-primary);border-color:color-mix(in srgb,var(--dsw-alias-state-error-primary) 40%,transparent)}
+.sw-miniBtn--danger:hover{background:color-mix(in srgb,var(--dsw-alias-state-error-primary) 10%,transparent);border-color:var(--dsw-alias-state-error-primary)}
+.sw-trashFoot{flex:none;padding:8px 10px;border-top:1px solid var(--dsw-alias-border-l1)}
+.sw-trashFoot .sw-btn{width:100%;justify-content:center;height:28px}
 .sw-empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:24px;pointer-events:none}
 .sw-empty>svg{opacity:.28}
 .sw-empty-title{font-size:14.5px;font-weight:600;letter-spacing:.02em}
@@ -254,7 +287,11 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
 .sw-foot .sw-spacer{flex:1 1 8px}
 .sw-status{white-space:nowrap;font-variant-numeric:tabular-nums}
 .sw-status--error{color:var(--dsw-alias-state-error-primary);background:none;border:0;padding:0;font:inherit;cursor:pointer;text-decoration:underline dotted}
-.sw-toast{position:absolute;left:50%;bottom:48px;transform:translateX(-50%);max-width:min(460px,calc(100% - 40px));padding:8px 15px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-overlay);color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.55;letter-spacing:.01em;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:9000;white-space:pre-wrap}
+.sw-toast{position:absolute;left:50%;bottom:48px;transform:translateX(-50%);display:flex;align-items:center;gap:10px;max-width:min(520px,calc(100% - 40px));padding:8px 12px 8px 15px;border-radius:10px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-overlay);color:var(--dsw-alias-label-primary);font-size:12px;line-height:1.55;letter-spacing:.01em;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:9000;white-space:pre-wrap}
+.sw-toastText{flex:1 1 auto;min-width:0}
+.sw-toastAction{flex:none;height:24px;padding:0 10px;border-radius:7px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-brand-primary);font-size:12px;font-family:inherit;font-weight:600;cursor:pointer;white-space:nowrap}
+.sw-toastAction:hover{border-color:var(--dsw-alias-brand-primary)}
+.sw-toastAction:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}
 .sw-toast[data-kind="error"]{border-color:var(--dsw-alias-state-error-primary);color:var(--dsw-alias-state-error-primary)}
 @media (prefers-reduced-motion:reduce){.sw-note,.sw-btn,.sw-swatches,.sw-iconBtn{transition:none}}
 @media (max-width:640px){.sw-head{padding:10px 12px}.sw-search input{width:120px}.sw-foot{padding:6px 12px}}
@@ -326,8 +363,26 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
   // 极简 store（闭包内，组件间共享）
   // -------------------------------------------------------------------------
 
+  /** 回收站抽屉的偏好（固定与否）记在本地，不占便签数据。 */
+  const TRASH_PREF_KEY = 'dsh-sticky-wall:trash'
+  function readTrashPref() {
+    try {
+      const raw = localStorage.getItem(TRASH_PREF_KEY)
+      if (raw === null) return { pinned: false }
+      const parsed = JSON.parse(raw)
+      return { pinned: parsed !== null && typeof parsed === 'object' && parsed.pinned === true }
+    } catch {
+      return { pinned: false }
+    }
+  }
+  function saveTrashPref(pinned) {
+    try { localStorage.setItem(TRASH_PREF_KEY, JSON.stringify({ pinned })) } catch { /* 隐私模式下写不了，忽略 */ }
+  }
+  const trashPref = readTrashPref()
+
   let state = {
     notes: [],
+    trash: [],
     status: 'loading', // loading | ready | error
     error: '',
     query: '',
@@ -337,7 +392,10 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     saving: 0,
     savedAt: 0,
     confirmClear: false,
-    toast: null, // { text, kind }
+    confirmPurge: false,
+    trashOpen: trashPref.pinned,
+    trashPinned: trashPref.pinned,
+    toast: null, // { text, kind, action? }
   }
   const subscribers = new Set()
   const getSnapshot = () => state
@@ -354,13 +412,13 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
   }
 
   let toastTimer = null
-  function notify(text, kind) {
+  function notify(text, kind, action) {
     if (toastTimer) clearTimeout(toastTimer)
-    setState({ toast: { text: String(text), kind: kind || 'info' } })
+    setState({ toast: { text: String(text), kind: kind || 'info', action: action || null } })
     toastTimer = setTimeout(() => {
       toastTimer = null
       setState({ toast: null })
-    }, 4200)
+    }, action ? 6000 : 4200)
   }
 
   /** 已进入保存流程、还没被服务端确认的 id —— 轮询合并时优先信本地。 */
@@ -405,10 +463,19 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     setState({ notes: next })
   }
 
+  /** 回收站快照：服务端是权威，直接整表替换。 */
+  function mergeTrash(remote) {
+    const list = (Array.isArray(remote) ? remote : [])
+      .filter((note) => note !== null && typeof note === 'object' && typeof note.id === 'string')
+      .map(normalizeNoteClient)
+    setState({ trash: list })
+  }
+
   async function load(quiet) {
     try {
       const data = await rpc('/snapshot')
       mergeRemote(data.notes)
+      if (Array.isArray(data.trash)) mergeTrash(data.trash)
       setState({ status: 'ready', error: '' })
     } catch (error) {
       setState({ status: 'error', error: String(error?.message || error) })
@@ -421,6 +488,7 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     text: typeof note.text === 'string' ? note.text.slice(0, MAX_TEXT) : '',
     lines: Array.isArray(note.lines) ? note.lines : undefined,
     ruled: note.ruled !== false,
+    collapsed: note.collapsed === true,
     w: typeof note.w === 'number' ? note.w : NOTE_W,
     minLines: typeof note.minLines === 'number' ? note.minLines : DEFAULT_MIN_LINES,
     color: note.color,
@@ -527,31 +595,82 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     return note
   }
 
+  /** 删除 = 进回收站（软删除）。乐观更新 + toast 里给一个「撤销」。 */
   async function removeNote(id) {
     const backup = state.notes
-    setState({ notes: state.notes.filter((note) => note.id !== id) })
+    const pending = saveTimers.get(id)
+    if (pending) { clearTimeout(pending); saveTimers.delete(id) }
     dirty.delete(id)
+    setState({ notes: state.notes.filter((note) => note.id !== id) })
     try {
       const data = await rpc('/remove', { id })
       mergeRemote(data.notes)
-      notify('已撕掉一张便签', 'ok')
+      if (Array.isArray(data.trash)) mergeTrash(data.trash)
+      notify('已移到回收站（右侧抽屉）', 'ok', { label: '撤销', run: () => { restoreNote(id) } })
     } catch (error) {
       setState({ notes: backup })
       notify('删除失败：' + String(error?.message || error), 'error')
     }
   }
 
+  async function restoreNote(id) {
+    try {
+      const data = await rpc('/restore', { id })
+      mergeRemote(data.notes)
+      if (Array.isArray(data.trash)) mergeTrash(data.trash)
+      notify('已恢复一张便签', 'ok')
+    } catch (error) {
+      notify('恢复失败：' + String(error?.message || error), 'error')
+    }
+  }
+
+  async function purgeNote(id) {
+    try {
+      const data = await rpc('/purge', { id })
+      mergeRemote(data.notes)
+      if (Array.isArray(data.trash)) mergeTrash(data.trash)
+      notify('已彻底删除', 'ok')
+    } catch (error) {
+      notify('删除失败：' + String(error?.message || error), 'error')
+    }
+  }
+
+  async function purgeAllTrash() {
+    try {
+      const data = await rpc('/purge-all', {})
+      mergeRemote(data.notes)
+      if (Array.isArray(data.trash)) mergeTrash(data.trash)
+      setState({ confirmPurge: false })
+      notify('回收站已清空', 'ok')
+    } catch (error) {
+      notify('清空回收站失败：' + String(error?.message || error), 'error')
+    }
+  }
+
   async function clearAll() {
     try {
-      await rpc('/clear')
+      // 清空墙面同样是软删除：全部进回收站，后悔还能捞回来
+      const data = await rpc('/clear')
       dirty.clear()
       for (const timer of saveTimers.values()) clearTimeout(timer)
       saveTimers.clear()
-      setState({ notes: [], confirmClear: false, savedAt: Date.now() })
-      notify('便签墙已清空', 'ok')
+      mergeRemote(data.notes)
+      if (Array.isArray(data.trash)) mergeTrash(data.trash)
+      setState({ confirmClear: false, savedAt: Date.now() })
+      notify('已清空到回收站', 'ok')
     } catch (error) {
       notify('清空失败：' + String(error?.message || error), 'error')
     }
+  }
+
+  function toggleTrash() {
+    setState({ trashOpen: !state.trashOpen })
+  }
+
+  function toggleTrashPin() {
+    const pinned = !state.trashPinned
+    saveTrashPref(pinned)
+    setState({ trashPinned: pinned, trashOpen: pinned ? true : state.trashOpen })
   }
 
   function raise(id) {
@@ -718,6 +837,9 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
     React.createElement('circle', { cx: 9, cy: 17.6, r: 1.5, fill: 'currentColor', stroke: 'none' }),
     React.createElement('circle', { cx: 15, cy: 17.6, r: 1.5, fill: 'currentColor', stroke: 'none' }))
   const closePath = React.createElement('path', { d: 'M6 6 18 18 M18 6 6 18' })
+  /** 收起 / 展开：一个朝下、一个朝上 */
+  const collapsePath = React.createElement('path', { d: 'M6 9.5 12 15.5 18 9.5' })
+  const expandPath = React.createElement('path', { d: 'M6 14.5 12 8.5 18 14.5' })
 
   /** 侧栏图标：一张贴着的便签（currentColor，跟随选中态）。 */
   function SidebarIcon({ size = 16 }) {
@@ -1286,6 +1408,7 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
 
     const zIndex = Math.min(40000, 100 + Math.round(note.z || 0) + (note.pinned ? 20000 : 0))
     const ruled = note.ruled !== false
+    const collapsed = note.collapsed === true
 
     return React.createElement('div', {
       ref: noteRef,
@@ -1293,6 +1416,7 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
       'data-note-id': note.id,
       'data-pinned': String(Boolean(note.pinned)),
       'data-ruled': String(ruled),
+      'data-collapsed': String(collapsed),
       style: Object.assign({
         left: note.x + '%',
         top: note.y + '%',
@@ -1324,6 +1448,14 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
           React.createElement('button', {
             type: 'button',
             className: 'sw-iconBtn',
+            'aria-label': collapsed ? '展开便签' : '收起便签',
+            'aria-pressed': String(collapsed),
+            title: collapsed ? '展开' : '收起（只留两行）',
+            onClick: () => updateNote(note.id, { collapsed: !collapsed }),
+          }, React.createElement(Icon, { size: 13 }, collapsed ? expandPath : collapsePath)),
+          React.createElement('button', {
+            type: 'button',
+            className: 'sw-iconBtn',
             'aria-label': ruled ? '关掉横线' : '打开横线',
             'aria-pressed': String(ruled),
             title: ruled ? '关掉横线' : '打开横线',
@@ -1341,10 +1473,14 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
             type: 'button',
             className: 'sw-iconBtn',
             'aria-label': '删除便签',
-            title: '删除便签',
+            title: '删除便签（先进回收站）',
             onClick: () => removeNote(note.id),
           }, React.createElement(Icon, { size: 13 }, trashPath)))),
-      React.createElement('div', { className: 'sw-body' },
+      React.createElement('div', {
+        className: 'sw-body',
+        // 收起时点一下就展开（正文此时不接受输入，见 CSS 的 pointer-events）
+        onClick: collapsed ? () => updateNote(note.id, { collapsed: false }) : undefined,
+      },
         lines.map((line, index) => React.createElement(NoteLine, {
           key: line.id,
           line,
@@ -1356,6 +1492,7 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
           onPaste: (event) => onLinePaste(event, line.id),
           onFocus: () => { if (activeId !== line.id) setActiveId(line.id) },
         }))),
+      collapsed ? React.createElement('span', { className: 'sw-collapsedChip', 'aria-hidden': true }, '展开') : null,
       React.createElement('div', { className: 'sw-noteFoot' },
         React.createElement('div', { className: 'sw-swatches', role: 'group', 'aria-label': '便签纸色' },
           COLOR_KEYS.map((key) => React.createElement('button', {
@@ -1392,6 +1529,105 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
         },
       }, React.createElement(Icon, { size: 11 }, resizePath)))
   }
+
+  // -------------------------------------------------------------------------
+  // 回收站（右侧抽屉）
+  // -------------------------------------------------------------------------
+
+  /** 一张回收站卡片：纸色条 + 前两行预览 + 删除时间 + 恢复/彻底删除。 */
+  function TrashItem({ item }) {
+    const paper = PAPERS[item.color] || PAPERS.yellow
+    const [confirm, setConfirm] = React.useState(false)
+    React.useEffect(() => {
+      if (!confirm) return undefined
+      const timer = setTimeout(() => setConfirm(false), 3000)
+      return () => clearTimeout(timer)
+    }, [confirm])
+    const preview = (Array.isArray(item.lines) ? item.lines : [])
+      .map((line) => (typeof line.text === 'string' ? line.text.trim() : ''))
+      .filter((text) => text !== '')
+      .slice(0, 2)
+      .join(' · ')
+    return React.createElement('div', { className: 'sw-trashItem', 'data-note-id': item.id },
+      React.createElement('span', { className: 'sw-trashSwatch', style: { background: paper.bg }, 'aria-hidden': true }),
+      React.createElement('div', { className: 'sw-trashMain' },
+        React.createElement('div', { className: 'sw-trashText' }, preview === '' ? '（空白便签）' : preview),
+        React.createElement('div', { className: 'sw-trashWhen' }, '删除于 ' + relTime(item.deletedAt))),
+      React.createElement('div', { className: 'sw-trashActions' },
+        React.createElement('button', {
+          type: 'button',
+          className: 'sw-miniBtn',
+          onClick: () => restoreNote(item.id),
+        }, '恢复'),
+        React.createElement('button', {
+          type: 'button',
+          className: 'sw-miniBtn sw-miniBtn--danger',
+          onClick: () => {
+            if (confirm) purgeNote(item.id)
+            else setConfirm(true)
+          },
+        }, confirm ? '确认删除' : '彻底删除')))
+  }
+
+  /**
+   * 右侧回收站抽屉：默认收起成一条窄标签（带数量），点开是抽屉面板；
+   * 面板上的图钉可以「固定」，固定后点别处不会自动收起（偏好记在 localStorage）。
+   */
+  function TrashDrawer() {
+    const wall = useWall()
+    const items = wall.trash
+    const open = wall.trashOpen
+    const pinned = wall.trashPinned
+    return React.createElement('aside', {
+      className: 'sw-trash',
+      'data-open': String(open),
+      'data-pinned': String(pinned),
+    },
+      React.createElement('button', {
+        type: 'button',
+        className: 'sw-trashTab',
+        'aria-label': '回收站，' + items.length + ' 张便签',
+        'aria-expanded': String(open),
+        title: '回收站',
+        onClick: toggleTrash,
+      },
+        React.createElement(Icon, { size: 15 }, trashPath),
+        items.length > 0 ? React.createElement('span', { className: 'sw-trashCount' }, items.length > 99 ? '99+' : String(items.length)) : null),
+      open ? React.createElement('div', { className: 'sw-trashPanel', role: 'region', 'aria-label': '回收站' },
+        React.createElement('div', { className: 'sw-trashHead' },
+          React.createElement('span', { className: 'sw-trashTitle' }, '回收站'),
+          React.createElement('span', { className: 'sw-trashMeta' }, items.length > 0 ? items.length + ' 张' : '空'),
+          React.createElement('div', { className: 'sw-spacer' }),
+          React.createElement('button', {
+            type: 'button',
+            className: 'sw-iconBtn',
+            'aria-label': pinned ? '取消固定' : '固定打开',
+            'aria-pressed': String(pinned),
+            title: pinned ? '取消固定' : '固定打开',
+            onClick: toggleTrashPin,
+          }, React.createElement(Icon, { size: 13 }, pinPath)),
+          React.createElement('button', {
+            type: 'button',
+            className: 'sw-iconBtn',
+            'aria-label': '关闭回收站',
+            title: '关闭',
+            onClick: () => setState({ trashOpen: false }),
+          }, React.createElement(Icon, { size: 13 }, closePath))),
+        items.length === 0
+          ? React.createElement('div', { className: 'sw-trashEmpty' }, '回收站是空的。\n删掉的便签会先落到这里，不会立刻消失。')
+          : React.createElement('div', { className: 'sw-trashList' },
+            items.map((item) => React.createElement(TrashItem, { key: item.id, item }))),
+        items.length === 0 ? null : React.createElement('div', { className: 'sw-trashFoot' },
+          React.createElement('button', {
+            type: 'button',
+            className: 'sw-btn sw-btn--danger',
+            onClick: () => {
+              if (wall.confirmPurge) purgeAllTrash()
+              else setState({ confirmPurge: true })
+            },
+          }, wall.confirmPurge ? '再点一次清空' : '清空回收站'))) : null)
+  }
+
   // -------------------------------------------------------------------------
   // 主面板
   // -------------------------------------------------------------------------
@@ -1554,6 +1790,11 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
           noneMatched ? React.createElement('div', { className: 'sw-empty' },
             React.createElement('div', { className: 'sw-empty-title' }, wall.pinnedOnly && query === '' ? '没有置顶的便签' : '没有匹配的便签'),
             React.createElement('div', { className: 'sw-empty-desc' }, '换个关键词，或点「置顶」取消筛选。')) : null)),
+      React.createElement(TrashDrawer, null),
+      wall.trashOpen && !wall.trashPinned ? React.createElement('div', {
+        className: 'sw-trashScrim',
+        onClick: () => setState({ trashOpen: false }),
+      }) : null,
       React.createElement('div', { className: 'sw-foot' },
         React.createElement('span', { className: 'sw-foot-tip' }, '回车换行 · 「- 」「1. 」变清单 · 悬停纸条切换格式与纸色'),
         React.createElement('div', { className: 'sw-spacer' }),
@@ -1562,7 +1803,17 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
         className: 'sw-toast',
         'data-kind': wall.toast.kind,
         role: 'status',
-      }, wall.toast.text))
+      },
+        React.createElement('span', { className: 'sw-toastText' }, wall.toast.text),
+        wall.toast.action === null || wall.toast.action === undefined ? null : React.createElement('button', {
+          type: 'button',
+          className: 'sw-toastAction',
+          onClick: () => {
+            const action = wall.toast.action
+            setState({ toast: null })
+            if (action !== null && action !== undefined) action.run()
+          },
+        }, wall.toast.action.label)))
   }
 
   // -------------------------------------------------------------------------

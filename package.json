@@ -1,8 +1,8 @@
 {
   "name": "dsh-plugin-sticky-wall",
-  "version": "1.3.3",
+  "version": "1.4.0",
   "type": "module",
-  "description": "便签墙：DSH 侧栏一块可自由摆放的便签墙（待办勾选、有序/无序列表、横线纸开关、可调大小、纸感纹理、拖拽摆放、跨会话持久化），并给模型 4 个 sticky_wall_* 工具，让「记到便签墙」这类话直接落到墙上。",
+  "description": "便签墙：DSH 侧栏一块可自由摆放的便签墙（待办勾选、有序/无序列表、可折叠、横线纸开关、可调大小、纸感纹理、回收站抽屉、跨会话持久化），并给模型 5 个 sticky_wall_* 工具，让「记到便签墙」这类话直接落到墙上。",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/zmengle/dsh-plugin-sticky-wall.git"
