@@ -605,6 +605,11 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
       // 回包期间用户又改了这一张：保留本地改动（dirty 不清），让后面的定时保存再发一次
       if ((revisions.get(id) || 0) === sentRevision) dirty.delete(id)
       if (Array.isArray(data.notes)) mergeRemote(data.notes)
+      // 内容超出上限被截断：宿主不报错，这里必须说一声，否则用户以为存下来了
+      if (data.truncated === true && warnedTruncate !== id) {
+        warnedTruncate = id
+        notify('内容超出上限，已截断（每行 1000 字 / 每张 4000 字 / 200 行）', 'error')
+      }
       setState({ status: 'ready', error: '', savedAt: Date.now(), saving: Math.max(0, state.saving - 1) })
     } catch (error) {
       setState({
@@ -687,6 +692,8 @@ window.__ModuleLoader__.load({ id: 'dsh-plugin-sticky-wall', factory: (require) 
   let wallEl = null
   /** 坏文件备份的提示只弹一次（轮询会反复带这个字段）。 */
   let warnedBackup = false
+  /** 「内容超限被截断」每张便签只提示一次，别每敲一个字弹一遍。 */
+  let warnedTruncate = null
 
   /** 删除 = 进回收站（软删除）。乐观更新 + toast 里给一个「撤销」。 */
   async function removeNote(id) {

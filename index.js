@@ -206,6 +206,19 @@ function normalizeNote(raw, prev) {
   })
 }
 
+/**
+ * 这次写入有没有被截断（行数 / 单行字数 / 总字数）。
+ * 截断是静默的，所以要把事实告诉调用方，让 UI 能提示一句「内容太长，已截断」。
+ */
+function wasTruncated(src, note) {
+  const srcLines = Array.isArray(src.lines) ? src.lines : null
+  const inChars = srcLines !== null
+    ? srcLines.reduce((sum, line) => sum + (typeof line?.text === 'string' ? line.text.length : 0), 0)
+    : (typeof src.text === 'string' ? src.text.length : 0)
+  const outChars = note.lines.reduce((sum, line) => sum + line.text.length, 0)
+  return inChars > outChars || (srcLines !== null && srcLines.length > note.lines.length)
+}
+
 /** 首次安装的欢迎便签（只在意文件不存在时写入，不覆盖用户数据）。 */
 function seedNotes() {
   const t = Date.now()
@@ -344,18 +357,20 @@ export function apply(ctx, config) {
   /**
    * 批量 upsert：同 id 更新，缺 id 新建。
    * 上限只数「墙上的」（回收站里的不该占墙面名额）。
-   * @returns {{ saved: Array<object>, skipped: number, full: boolean }}
+   * @returns {{ saved: Array<object>, skipped: number, full: boolean, truncated: boolean }}
    */
   function upsertMany(inputs) {
     const saved = []
     let skipped = 0
     let full = false
+    let truncated = false
     const wallCount = () => notes.filter((n) => !n.trashed).length
     for (const input of Array.isArray(inputs) ? inputs : []) {
       if (input === null || typeof input !== 'object') { skipped += 1; continue }
       const id = typeof input.id === 'string' ? input.id : ''
       const existing = id === '' ? undefined : notes.find((n) => n.id === id)
       const note = normalizeNote(input, existing)
+      if (wasTruncated(input, note)) truncated = true
       if (existing === undefined) {
         const hasText = typeof input.text === 'string' && input.text.trim() !== ''
         // 既没有 id 也没有正文的空壳请求直接丢弃，别在墙上留空白纸
@@ -368,7 +383,7 @@ export function apply(ctx, config) {
       saved.push(note)
     }
     if (saved.length > 0) persist()
-    return { saved, skipped, full }
+    return { saved, skipped, full, truncated }
   }
 
   /** 回收站超量时挤掉最旧的几张（只在删除动作里调用，并打日志，让「丢」可追溯）。 */
@@ -611,7 +626,7 @@ export function apply(ctx, config) {
           }
           const result = upsertMany(inputs)
           await durable()
-          const head = { ok: true, saved: result.saved.map((n) => n.id), skipped: result.skipped, full: result.full }
+          const head = { ok: true, saved: result.saved.map((n) => n.id), skipped: result.skipped, full: result.full, truncated: result.truncated }
           // light：保存回包不带整面墙（客户端每次都传它，500 张时这会多传约 1MB）
           if (body?.light === true) {
             sendJson(res, 200, Object.assign(head, { savedAt: Date.now() }))
@@ -772,14 +787,17 @@ export function apply(ctx, config) {
         const trimmed = String(text ?? '').trim()
         if (trimmed === '') throw new Error('便签正文不能为空')
         const maxZ = notes.reduce((max, n) => Math.max(max, n.z), 0) + 1
-        const { saved, full } = upsertMany([{ text: trimmed, color, pinned, z: maxZ }])
+        const { saved, full, truncated } = upsertMany([{ text: trimmed, color, pinned, z: maxZ }])
         const note = saved[0]
         if (note === undefined) {
           throw new Error(full
             ? `便签墙已满（${MAX_NOTES} 张），先让用户删几张、或清空到回收站再加`
             : '便签没贴上（请求被丢弃），检查 text 是否为空')
         }
-        return `已贴到便签墙：[${note.id}] ${COLOR_LABEL[note.color]}${note.pinned ? ' · 置顶' : ''}\n${oneLine(note.text, 120)}`
+        const warning = truncated
+          ? `\n（内容超出上限，已截断：每张 ${MAX_LINES} 行 / 每行 ${MAX_LINE_CHARS} 字 / 合计 ${MAX_TEXT} 字）`
+          : ''
+        return `已贴到便签墙：[${note.id}] ${COLOR_LABEL[note.color]}${note.pinned ? ' · 置顶' : ''}\n${oneLine(note.text, 120)}${warning}`
       },
     }),
     defineTool({
