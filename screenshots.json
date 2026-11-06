@@ -1,8 +1,8 @@
 [
-  "docs/wall-light.jpg",
-  "docs/wall-dark.jpg",
-  "docs/note-closeup.jpg",
-  "docs/collapsed.jpg",
-  "docs/trash.jpg",
-  "docs/toasts.jpg"
+  "https://raw.githubusercontent.com/zmengle/dsh-plugin-sticky-wall/main/docs/wall-light.jpg",
+  "https://raw.githubusercontent.com/zmengle/dsh-plugin-sticky-wall/main/docs/wall-dark.jpg",
+  "https://raw.githubusercontent.com/zmengle/dsh-plugin-sticky-wall/main/docs/note-closeup.jpg",
+  "https://raw.githubusercontent.com/zmengle/dsh-plugin-sticky-wall/main/docs/collapsed.jpg",
+  "https://raw.githubusercontent.com/zmengle/dsh-plugin-sticky-wall/main/docs/trash.jpg",
+  "https://raw.githubusercontent.com/zmengle/dsh-plugin-sticky-wall/main/docs/toasts.jpg"
 ]

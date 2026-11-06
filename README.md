@@ -223,8 +223,8 @@ dsh plugin add D:/path/to/dsh-plugin-sticky-wall
 dsh plugin remove dsh-plugin-sticky-wall
 ```
 
-装完重启 `dsh web`，侧栏就会出现便签图标。**要求 DSH ≥ 0.2.1-rc.4**（`engines.dsh` 已声明，
-不满足的版本会被插件管理器直接拦住，而不是装上一个空白面板）。
+装完重启 `dsh web`，侧栏就会出现便签图标。**要求 DSH `>=0.2.1-rc.4 <0.3.0`**（`engines.dsh` 已声明：
+小版本内行为稳定，但不跨 0.3 猜兼容——不满足的版本会被插件管理器直接拦住，而不是装上一个空白面板）。
 
 ## 已知限制
 

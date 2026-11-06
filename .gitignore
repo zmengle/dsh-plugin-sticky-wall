@@ -5,3 +5,9 @@ npm-debug.log*
 Thumbs.db
 .env
 .env.*
+
+# 打包产物 / 本地数据（别提交）
+*.tgz
+.dsh-test/
+sticky-wall.json
+*.corrupt-*
