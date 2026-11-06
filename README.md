@@ -107,6 +107,8 @@ dsh plugin add dsh-plugin-sticky-wall
   - **合并进来**：文件里的便签加到墙上，现有的不动（id 撞了会自动换新 id）；
   - **覆盖现有**：整体替换（含回收站），要点两次确认。
 
+![设置与备份](https://raw.githubusercontent.com/zmengle/dsh-plugin-sticky-wall/main/docs/settings.jpg)
+
 换电脑就是「在旧机器上导出 → 拷文件 → 新机器导入」，或者直接把 `sticky-wall.json` 拷过去。
 想放到别的位置（比如同步盘）见下面的「配置」。
 
